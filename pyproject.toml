@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "carm"
+version = "0.1.0"
+description = "Conflict-Aware Reasoning Module scaffold for multimodal conflict arbitration"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.0",
+  "numpy>=1.24",
+  "PyYAML>=6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["carm*"]

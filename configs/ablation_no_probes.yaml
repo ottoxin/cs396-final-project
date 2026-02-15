@@ -1,0 +1,4 @@
+extends: default
+
+ablation:
+  remove_probe_features: true

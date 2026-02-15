@@ -1,0 +1,4 @@
+extends: default
+
+ablation:
+  disable_abstain_action: true

@@ -1,0 +1,12 @@
+extends: default
+
+training:
+  batch_size: 2
+  epochs: 1
+  lr: 0.001
+  lambda_cf: 0.5
+  margin_cf: 0.2
+  device: cpu
+
+runtime:
+  notes: "CPU-only local development profile"

@@ -1,0 +1,35 @@
+seed: 7
+
+data:
+  held_out_family: text_edit_relation
+  held_out_severity: 3
+  max_severity: 3
+
+model:
+  hidden_size: 128
+  probe_feature_size: 3
+  pool: mean
+
+backbone:
+  name: mock_frozen_backbone
+  hidden_size: 128
+  seq_len: 32
+
+training:
+  batch_size: 4
+  epochs: 2
+  lr: 0.001
+  lambda_cf: 0.5
+  margin_cf: 0.2
+  device: cpu
+
+eval:
+  semantic_threshold: 0.82
+  min_overlap_tokens: 2
+  uncertainty_entropy_threshold: 1.9
+
+acceptance:
+  consistent_drop_max_abs_points: 1.0
+  monotonicity_violation_rate_max: 0.15
+  ece_max: 0.12
+  brier_max: 0.25

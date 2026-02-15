@@ -1,0 +1,7 @@
+extends: default
+
+training:
+  lambda_cf: 0.0
+
+ablation:
+  remove_counterfactual_loss: true

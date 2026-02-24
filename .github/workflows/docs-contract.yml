@@ -1,0 +1,26 @@
+name: Docs Contract
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  validate-docs-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate REPORT.md (LOG.md if present)
+        run: python3 scripts/validate_docs_contract.py
+
+      - name: Run smoke validation
+        run: python3 scripts/validate_docs_contract.py --smoke

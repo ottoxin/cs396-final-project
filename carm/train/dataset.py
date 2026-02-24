@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from torch.utils.data import Dataset
 
-from carm.data.schema import ConflictExample, CorruptedModality
+from carm.data.schema import ConflictExample, CorruptModality
 
 
 class ConflictDataset(Dataset[ConflictExample]):
@@ -19,13 +19,11 @@ class ConflictDataset(Dataset[ConflictExample]):
 
 
 def build_clean_index(examples: list[ConflictExample]) -> dict[str, ConflictExample]:
-    """Index clean reference examples for counterfactual pairs."""
     idx: dict[str, ConflictExample] = {}
     for ex in examples:
-        if ex.corrupted_modality != CorruptedModality.NONE:
+        if ex.corrupt_modality != CorruptModality.NONE:
             continue
-        key = pair_key(ex)
-        idx[key] = ex
+        idx[pair_key(ex)] = ex
     return idx
 
 
@@ -34,8 +32,8 @@ def pair_key(ex: ConflictExample) -> str:
     return f"{src}::{ex.question}"
 
 
-def group_by_corruption_family(examples: list[ConflictExample]) -> dict[str, list[ConflictExample]]:
+def group_by_operator(examples: list[ConflictExample]) -> dict[str, list[ConflictExample]]:
     out: dict[str, list[ConflictExample]] = defaultdict(list)
     for ex in examples:
-        out[ex.corruption_family].append(ex)
+        out[ex.operator.value].append(ex)
     return out

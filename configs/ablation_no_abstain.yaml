@@ -1,4 +1,3 @@
 extends: default
-
-ablation:
-  disable_abstain_action: true
+policy:
+  abstain_token: ""

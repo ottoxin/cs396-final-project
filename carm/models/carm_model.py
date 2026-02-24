@@ -21,18 +21,16 @@ class CARMHeads(nn.Module):
         self.config = config or CARMModelConfig()
         decision_dim = self.config.hidden_size + (2 * self.config.probe_feature_size)
 
-        self.conflict_head = nn.Linear(decision_dim, 5)
+        self.conflict_head = nn.Linear(decision_dim, 4)
         self.reliability_head = nn.Linear(decision_dim, 2)
         self.action_head = nn.Linear(decision_dim, 4)
 
     def pool_anchor_states(self, anchor_states: torch.Tensor) -> torch.Tensor:
         if anchor_states.dim() == 3:
-            # [B, L, D]
             if self.config.pool == "mean":
                 return anchor_states.mean(dim=1)
             raise ValueError(f"Unsupported pool mode: {self.config.pool}")
         if anchor_states.dim() == 2:
-            # [L, D]
             if self.config.pool == "mean":
                 return anchor_states.mean(dim=0)
             raise ValueError(f"Unsupported pool mode: {self.config.pool}")

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 import torch
 
@@ -21,7 +20,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input_jsonl", required=True)
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--model_ckpt", default=None)
-    parser.add_argument("--split", default="test", choices=["train", "val", "test", "all"])
+    parser.add_argument(
+        "--split",
+        default="test_id",
+        choices=["train", "val", "test_id", "test_ood_family", "test_ood_severity", "test_ood_hard_swap", "all"],
+    )
     return parser.parse_args()
 
 

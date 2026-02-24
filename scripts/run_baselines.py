@@ -6,23 +6,41 @@ import json
 from pathlib import Path
 
 from carm.data.io import load_examples
+from carm.data.schema import Split
 from carm.eval.baselines import (
-    BackboneOnlyBaseline,
+    BackboneDirectBaseline,
     ProbeOnlyHeuristicBaseline,
     PromptVerificationBaseline,
+    TwoPassSelfConsistencyBaseline,
     UncertaintyThresholdAbstainBaseline,
 )
 from carm.eval.evaluator import evaluate_predictor
-from carm.models.backbone import BackboneConfig, MockFrozenBackbone
+from carm.models.registry import create_backbone
 from carm.utils.config import load_yaml_config
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run baseline evaluators.")
+    parser = argparse.ArgumentParser(description="Run Phase A baseline evaluators.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--input_jsonl", required=True)
     parser.add_argument("--output_dir", required=True)
+    parser.add_argument(
+        "--split",
+        default="all",
+        help="all or comma-separated split names (train,val,test_id,test_ood_family,test_ood_severity,test_ood_hard_swap)",
+    )
     return parser.parse_args()
+
+
+def _parse_split_filter(raw: str) -> set[str] | None:
+    if raw.strip().lower() == "all":
+        return None
+    splits = {s.strip() for s in raw.split(",") if s.strip()}
+    valid = {s.value for s in Split}
+    unknown = sorted(s for s in splits if s not in valid)
+    if unknown:
+        raise ValueError(f"Unknown split filters: {unknown}. Valid: {sorted(valid)}")
+    return splits
 
 
 def main() -> None:
@@ -30,22 +48,24 @@ def main() -> None:
     cfg = load_yaml_config(args.config)
     examples = load_examples(args.input_jsonl)
 
-    backbone_cfg = cfg.get("backbone", {})
+    split_filter = _parse_split_filter(args.split)
+    if split_filter is not None:
+        examples = [ex for ex in examples if ex.split.value in split_filter]
+
+    if not examples:
+        raise ValueError("No examples selected for baseline run.")
+
+    backbone = create_backbone(cfg.get("backbone", {}))
     eval_cfg = cfg.get("eval", {})
-    backbone = MockFrozenBackbone(
-        BackboneConfig(
-            hidden_size=int(backbone_cfg.get("hidden_size", 128)),
-            seq_len=int(backbone_cfg.get("seq_len", 32)),
-        )
-    )
 
     baselines = [
-        BackboneOnlyBaseline(backbone),
+        BackboneDirectBaseline(backbone),
         PromptVerificationBaseline(backbone),
         UncertaintyThresholdAbstainBaseline(
             backbone,
             entropy_threshold=float(eval_cfg.get("uncertainty_entropy_threshold", 1.9)),
         ),
+        TwoPassSelfConsistencyBaseline(backbone),
         ProbeOnlyHeuristicBaseline(backbone),
     ]
 

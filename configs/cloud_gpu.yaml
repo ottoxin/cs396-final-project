@@ -1,15 +1,9 @@
 extends: default
 
+runtime:
+  device: cuda
+  notes: Cloud GPU profile for larger runs
+
 training:
   batch_size: 8
-  epochs: 6
-  lr: 0.0005
-  lambda_cf: 0.5
-  margin_cf: 0.2
-  device: cuda
-
-backbone:
-  name: llava_1_5_7b_4bit
-
-runtime:
-  notes: "Cloud GPU profile; frozen backbone + CARM heads only"
+  epochs: 3

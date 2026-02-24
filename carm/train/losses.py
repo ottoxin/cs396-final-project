@@ -6,20 +6,14 @@ import torch
 import torch.nn.functional as F
 
 from carm.data.labeling import derive_reliability_target
-from carm.data.schema import (
-    Action,
-    ConflictExample,
-    ConflictType,
-    CorruptedModality,
-)
+from carm.data.schema import Action, ConflictExample, CorruptModality, Family
 
 
 CONFLICT_TO_IDX = {
-    ConflictType.NONE: 0,
-    ConflictType.OBJECT: 1,
-    ConflictType.ATTRIBUTE: 2,
-    ConflictType.RELATION: 3,
-    ConflictType.COUNT: 4,
+    Family.NONE: 0,
+    Family.EXISTENCE: 1,
+    Family.COUNT: 2,
+    Family.ATTRIBUTE_COLOR: 3,
 }
 
 ACTION_TO_IDX = {
@@ -46,11 +40,11 @@ class ExampleTargets:
 def build_targets(example: ConflictExample, device: torch.device) -> ExampleTargets:
     rt = derive_reliability_target(
         evidence_modality=example.evidence_modality,
-        corrupted_modality=example.corrupted_modality,
+        corrupt_modality=example.corrupt_modality,
         severity=example.severity,
     )
     return ExampleTargets(
-        conflict_idx=CONFLICT_TO_IDX[example.conflict_type],
+        conflict_idx=CONFLICT_TO_IDX[example.family],
         action_idx=ACTION_TO_IDX[example.oracle_action],
         reliability_target=torch.tensor([rt.r_v, rt.r_t], dtype=torch.float32, device=device),
     )
@@ -59,13 +53,29 @@ def build_targets(example: ConflictExample, device: torch.device) -> ExampleTarg
 def counterfactual_hinge(
     clean_reliability: torch.Tensor,
     corrupted_reliability: torch.Tensor,
-    corrupted_modality: CorruptedModality,
+    corrupted_modality: CorruptModality,
     margin: float = 0.2,
 ) -> torch.Tensor:
-    if corrupted_modality == CorruptedModality.VISION:
-        return torch.relu(torch.tensor(margin, device=clean_reliability.device) - (clean_reliability[0] - corrupted_reliability[0]))
-    if corrupted_modality == CorruptedModality.TEXT:
-        return torch.relu(torch.tensor(margin, device=clean_reliability.device) - (clean_reliability[1] - corrupted_reliability[1]))
+    if corrupted_modality == CorruptModality.VISION:
+        return torch.relu(
+            torch.tensor(margin, device=clean_reliability.device)
+            - (clean_reliability[0] - corrupted_reliability[0])
+        )
+    if corrupted_modality == CorruptModality.TEXT:
+        return torch.relu(
+            torch.tensor(margin, device=clean_reliability.device)
+            - (clean_reliability[1] - corrupted_reliability[1])
+        )
+    if corrupted_modality == CorruptModality.BOTH:
+        loss_v = torch.relu(
+            torch.tensor(margin, device=clean_reliability.device)
+            - (clean_reliability[0] - corrupted_reliability[0])
+        )
+        loss_t = torch.relu(
+            torch.tensor(margin, device=clean_reliability.device)
+            - (clean_reliability[1] - corrupted_reliability[1])
+        )
+        return 0.5 * (loss_v + loss_t)
     return torch.tensor(0.0, device=clean_reliability.device)
 
 
@@ -77,8 +87,14 @@ def multi_task_loss(
     cf_loss: torch.Tensor,
     weights: TaskLossWeights,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    conflict = F.cross_entropy(conflict_logits, torch.tensor([targets.conflict_idx], device=conflict_logits.device))
-    action = F.cross_entropy(action_logits, torch.tensor([targets.action_idx], device=action_logits.device))
+    conflict = F.cross_entropy(
+        conflict_logits,
+        torch.tensor([targets.conflict_idx], device=conflict_logits.device),
+    )
+    action = F.cross_entropy(
+        action_logits,
+        torch.tensor([targets.action_idx], device=action_logits.device),
+    )
     reliability = F.mse_loss(reliability_pred.squeeze(0), targets.reliability_target)
     total = conflict + action + weights.rel_weight * reliability + weights.lambda_cf * cf_loss
     return total, {

@@ -5,43 +5,57 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from carm.data.io import save_examples
-from carm.data.schema import Split
-from carm.eval.evaluator import CARMPredictor, evaluate_predictor
+from carm.data.construction import build_conflict_suite
+from carm.data.io import load_examples, save_examples
+from carm.data.sampling import sample_pilot_by_base
+from carm.data.schema import Family
+from carm.eval.baselines import BackboneDirectBaseline, TwoPassSelfConsistencyBaseline
+from carm.eval.evaluator import evaluate_predictor
 from carm.models.backbone import MockFrozenBackbone
-from carm.models.carm_model import CARMHeads
-from carm.train.trainer import CARMTrainer, TrainerConfig
-from tests.fixtures import make_examples
+from tests.fixtures import make_base_examples
 
 
-class TestIntegrationTrainEval(unittest.TestCase):
-    def test_single_batch_train_and_eval_artifacts(self) -> None:
-        examples = make_examples()
-        train_examples = [ex for ex in examples if ex.split == Split.TRAIN]
-        test_examples = [ex for ex in examples if ex.split == Split.TEST]
-
-        model = CARMHeads()
-        backbone = MockFrozenBackbone()
-        trainer = CARMTrainer(model=model, backbone=backbone, config=TrainerConfig(batch_size=2, epochs=1, device="cpu"))
+class TestIntegrationPhaseASmoke(unittest.TestCase):
+    def test_build_sample_and_baselines(self) -> None:
+        base = make_base_examples()
 
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td)
-            train_dir = out / "train"
-            eval_dir = out / "eval"
+            root = Path(td)
+            base_jsonl = root / "base.jsonl"
+            full_jsonl = root / "full.jsonl"
+            pilot_jsonl = root / "pilot.jsonl"
+            save_examples(base_jsonl, base)
 
-            metrics = trainer.train(train_examples, output_dir=train_dir)
-            self.assertIn("loss_total", metrics)
-            self.assertTrue((train_dir / "train_metrics.json").exists())
+            loaded_base = load_examples(base_jsonl)
+            suite, _ = build_conflict_suite(
+                loaded_base,
+                seed=7,
+                held_out_family=Family.ATTRIBUTE_COLOR,
+                held_out_severity=3,
+            )
+            save_examples(full_jsonl, suite)
 
-            predictor = CARMPredictor(model=model, backbone=backbone)
-            eval_metrics = evaluate_predictor(predictor, test_examples, output_dir=eval_dir)
-            self.assertIn("accuracy", eval_metrics)
+            sampled, pilot_manifest = sample_pilot_by_base(suite, base_sample_size=2, seed=7)
+            save_examples(pilot_jsonl, sampled)
+            self.assertIn("selected_base_count", pilot_manifest)
+            self.assertGreater(len(sampled), 0)
 
-            pred_file = eval_dir / "per_example_predictions.jsonl"
+            backbone = MockFrozenBackbone()
+            eval_out = root / "eval"
+
+            direct_metrics = evaluate_predictor(BackboneDirectBaseline(backbone), sampled, output_dir=eval_out / "direct")
+            two_pass_metrics = evaluate_predictor(
+                TwoPassSelfConsistencyBaseline(backbone),
+                sampled,
+                output_dir=eval_out / "two_pass",
+            )
+
+            self.assertIn("accuracy", direct_metrics)
+            self.assertIn("macro_f1_conflict", two_pass_metrics)
+
+            pred_file = eval_out / "two_pass" / "per_example_predictions.jsonl"
             self.assertTrue(pred_file.exists())
-            line = pred_file.read_text(encoding="utf-8").splitlines()[0]
-            row = json.loads(line)
-
+            row = json.loads(pred_file.read_text(encoding="utf-8").splitlines()[0])
             required = {
                 "pred_conflict_type",
                 "pred_action",
@@ -52,12 +66,6 @@ class TestIntegrationTrainEval(unittest.TestCase):
                 "correct",
             }
             self.assertTrue(required.issubset(set(row.keys())))
-
-            snapshot = train_dir / "train_examples_snapshot.jsonl"
-            self.assertTrue(snapshot.exists())
-
-            loaded = snapshot.read_text(encoding="utf-8").splitlines()
-            self.assertGreater(len(loaded), 0)
 
 
 if __name__ == "__main__":

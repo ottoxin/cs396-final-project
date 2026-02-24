@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from carm.data.io import save_examples
-from carm.data.schema import ConflictExample, CorruptedModality
+from carm.data.schema import ConflictExample, CorruptModality
 from carm.models.backbone import MockFrozenBackbone
 from carm.models.carm_model import CARMHeads
 from carm.train.dataset import ConflictDataset, build_clean_index, pair_key
@@ -45,8 +45,13 @@ class CARMTrainer:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr)
 
     def _forward_example(self, ex: ConflictExample) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        mm = self.backbone.run_backbone_multimodal(ex.image_path, ex.text_input, ex.question)
-        pv = self.backbone.run_probe_vision_only(ex.image_path, ex.question)
+        image_payload = ex.image_path
+        recipe = ex.metadata.get("vision_recipe") if isinstance(ex.metadata, dict) else None
+        if isinstance(recipe, dict) and "payload" in recipe:
+            image_payload = str(recipe["payload"])
+
+        mm = self.backbone.run_backbone_multimodal(image_payload, ex.text_input, ex.question)
+        pv = self.backbone.run_probe_vision_only(image_payload, ex.question)
         pt = self.backbone.run_probe_text_only(ex.text_input, ex.question)
 
         anchor_states = mm.hidden_states.to(self.device)
@@ -90,14 +95,14 @@ class CARMTrainer:
                     targets = build_targets(ex, device=self.device)
 
                     cf = torch.tensor(0.0, device=self.device)
-                    if ex.corrupted_modality != CorruptedModality.NONE:
+                    if ex.corrupt_modality != CorruptModality.NONE:
                         ref = clean_index.get(pair_key(ex))
                         if ref is not None:
                             _, clean_rel, _ = self._forward_example(ref)
                             cf = counterfactual_hinge(
                                 clean_reliability=clean_rel.squeeze(0),
                                 corrupted_reliability=reliability.squeeze(0),
-                                corrupted_modality=ex.corrupted_modality,
+                                corrupted_modality=ex.corrupt_modality,
                                 margin=self.config.margin_cf,
                             )
 
@@ -125,6 +130,5 @@ class CARMTrainer:
         with (out_dir / "train_metrics.json").open("w", encoding="utf-8") as f:
             json.dump(averaged, f, indent=2)
 
-        # Snapshot effective training set for reproducibility.
         save_examples(out_dir / "train_examples_snapshot.jsonl", examples)
         return averaged

@@ -18,19 +18,21 @@ class BackboneConfig:
         "no",
         "red",
         "blue",
-        "left",
-        "right",
+        "green",
+        "yellow",
+        "black",
+        "white",
         "1",
         "2",
+        "3",
         "unknown",
     )
 
 
 class MockFrozenBackbone:
-    """
-    Deterministic local backbone adapter for CPU tests.
-    Replace with a real VLM backend in cloud runs.
-    """
+    """Deterministic local backbone adapter for Phase A pipeline validation."""
+
+    name = "mock_frozen_backbone"
 
     def __init__(self, config: BackboneConfig | None = None) -> None:
         self.config = config or BackboneConfig()
@@ -82,3 +84,35 @@ class MockFrozenBackbone:
             answer_text=self._decode(dist),
             features=extract_probe_features(dist),
         )
+
+
+class Qwen25VLAdapter:
+    name = "qwen2_5_vl_7b"
+
+    def __init__(self, model_name: str | None = None) -> None:
+        self.model_name = model_name or "Qwen/Qwen2.5-VL-7B-Instruct"
+
+    def run_backbone_multimodal(self, image: str, text: str, question: str) -> BackboneResult:
+        raise NotImplementedError("Qwen25VLAdapter is a Phase A stub. Runnable inference is next-wave work.")
+
+    def run_probe_vision_only(self, image: str, question: str) -> ProbeResult:
+        raise NotImplementedError("Qwen25VLAdapter is a Phase A stub. Runnable inference is next-wave work.")
+
+    def run_probe_text_only(self, text: str, question: str) -> ProbeResult:
+        raise NotImplementedError("Qwen25VLAdapter is a Phase A stub. Runnable inference is next-wave work.")
+
+
+class LlavaNextAdapter:
+    name = "llava_next_8b"
+
+    def __init__(self, model_name: str | None = None) -> None:
+        self.model_name = model_name or "llava-hf/llava-v1.6-8b"
+
+    def run_backbone_multimodal(self, image: str, text: str, question: str) -> BackboneResult:
+        raise NotImplementedError("LlavaNextAdapter is a Phase A stub. Runnable inference is next-wave work.")
+
+    def run_probe_vision_only(self, image: str, question: str) -> ProbeResult:
+        raise NotImplementedError("LlavaNextAdapter is a Phase A stub. Runnable inference is next-wave work.")
+
+    def run_probe_text_only(self, text: str, question: str) -> ProbeResult:
+        raise NotImplementedError("LlavaNextAdapter is a Phase A stub. Runnable inference is next-wave work.")

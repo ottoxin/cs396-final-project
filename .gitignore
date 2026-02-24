@@ -9,3 +9,5 @@ __pycache__/
 artifacts/
 data/generated/
 logs/
+AGENT.md
+LOG.md

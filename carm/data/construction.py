@@ -1,33 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import re
 from collections import defaultdict
 from dataclasses import replace
+from typing import Any
 
 from carm.data.integrity import validate_split_integrity
 from carm.data.labeling import derive_oracle_action
 from carm.data.schema import (
-    Action,
     ConflictExample,
-    ConflictType,
-    CorruptedModality,
-    EvidenceModality,
+    CorruptModality,
+    Family,
+    Operator,
     Split,
 )
-from carm.data.transforms import caption_swap, typed_text_edit, vision_corruption
-
-
-def _tokenize(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]+", text.lower()))
-
-
-def _jaccard(a: str, b: str) -> float:
-    ta, tb = _tokenize(a), _tokenize(b)
-    if not ta and not tb:
-        return 1.0
-    return len(ta.intersection(tb)) / max(1, len(ta.union(tb)))
+from carm.data.transforms import caption_swap, noun_jaccard, text_edit, vision_corrupt
 
 
 def infer_source_image_id(image_path: str) -> str:
@@ -39,155 +29,264 @@ def infer_template_id(question: str) -> str:
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
 
 
-def assign_oracle_labels(example: ConflictExample) -> ConflictExample:
-    oracle = derive_oracle_action(example.evidence_modality, example.corrupted_modality)
-    return replace(example, oracle_action=oracle)
-
-
-def adversarial_filter(
-    candidates: list[ConflictExample],
-    min_similarity: float = 0.18,
-    max_similarity: float = 0.72,
-) -> list[ConflictExample]:
-    """
-    Filter out trivial mismatches and near-duplicates to reduce shortcut cues.
-    """
-    filtered: list[ConflictExample] = []
-    for ex in candidates:
-        sim = _jaccard(ex.question, ex.text_input)
-        if min_similarity <= sim <= max_similarity:
-            ex.metadata = {**ex.metadata, "lexical_similarity": round(sim, 4)}
-            filtered.append(ex)
-    return filtered
-
-
-def similarity_balanced_sampling(
-    candidates: list[ConflictExample],
-    bins: int = 4,
-    per_bin: int = 100,
-    seed: int = 7,
-) -> list[ConflictExample]:
-    if not candidates:
-        return []
-    rng = random.Random(seed)
-    buckets: dict[int, list[ConflictExample]] = defaultdict(list)
-    for ex in candidates:
-        sim = float(ex.metadata.get("lexical_similarity", _jaccard(ex.question, ex.text_input)))
-        idx = min(bins - 1, int(sim * bins))
-        buckets[idx].append(ex)
-
-    sampled: list[ConflictExample] = []
-    for idx in range(bins):
-        bucket = buckets.get(idx, [])
-        rng.shuffle(bucket)
-        sampled.extend(bucket[:per_bin])
-    return sampled
-
-
-def _disjoint_split_by_source(
-    examples: list[ConflictExample],
-    held_out_family: str,
-    held_out_severity: int,
-    seed: int,
-) -> list[ConflictExample]:
-    rng = random.Random(seed)
-    by_source: dict[str, list[ConflictExample]] = defaultdict(list)
-    for ex in examples:
-        key = ex.source_image_id or infer_source_image_id(ex.image_path)
-        by_source[key].append(ex)
-
-    sources = list(by_source.keys())
-    rng.shuffle(sources)
-    n = len(sources)
-    train_cut = int(n * 0.7)
-    val_cut = int(n * 0.85)
-    train_sources = set(sources[:train_cut])
-    val_sources = set(sources[train_cut:val_cut])
-    test_sources = set(sources[val_cut:])
-
-    # Promote entire sources to TEST if any member belongs to a held-out family/severity.
-    forced_test_sources: set[str] = set()
-    for src, src_examples in by_source.items():
-        for ex in src_examples:
-            if ex.corruption_family == held_out_family:
-                forced_test_sources.add(src)
-                break
-            if ex.severity >= held_out_severity and ex.corrupted_modality != CorruptedModality.NONE:
-                forced_test_sources.add(src)
-                break
-
-    train_sources = train_sources.difference(forced_test_sources)
-    val_sources = val_sources.difference(forced_test_sources)
-    test_sources = test_sources.union(forced_test_sources)
-
-    out: list[ConflictExample] = []
-    for src, src_examples in by_source.items():
-        for ex in src_examples:
-            if src in val_sources:
-                split = Split.VAL
-            elif src in test_sources:
-                split = Split.TEST
-            else:
-                split = Split.TRAIN
-            out.append(replace(ex, split=split))
+def _set_clean_defaults(example: ConflictExample) -> ConflictExample:
+    out = replace(
+        example,
+        example_id=f"{example.base_id}::clean",
+        variant_id="clean",
+        operator=Operator.CLEAN,
+        corrupt_modality=CorruptModality.NONE,
+        severity=0,
+        hard_swap_flag=False,
+        heldout_family_flag=False,
+        heldout_severity_flag=False,
+        split=Split.TRAIN,
+        source_image_id=example.source_image_id or infer_source_image_id(example.image_path),
+        template_id=example.template_id or infer_template_id(example.question),
+    )
+    out.oracle_action = derive_oracle_action(out.corrupt_modality)
     return out
 
 
-def build_conflict_suite(
-    clean_examples: list[ConflictExample],
-    seed: int = 7,
-    held_out_family: str = "text_edit_relation",
-    held_out_severity: int = 3,
-) -> tuple[list[ConflictExample], dict[str, str]]:
-    """
-    Construct controlled conflict examples from clean pairs with typed conflicts and split rules.
-    """
+def _source_split(
+    examples: list[ConflictExample],
+    seed: int,
+    ratios: dict[str, float],
+) -> dict[str, Split]:
     rng = random.Random(seed)
-    by_topic = defaultdict(list)
-    for ex in clean_examples:
-        topic = str(ex.metadata.get("topic", "generic"))
-        by_topic[topic].append(ex)
+    source_ids = sorted({ex.source_image_id or infer_source_image_id(ex.image_path) for ex in examples})
+    rng.shuffle(source_ids)
+
+    n = len(source_ids)
+    n_train = int(n * float(ratios.get("train", 0.7)))
+    n_val = int(n * float(ratios.get("val", 0.15)))
+
+    train_sources = set(source_ids[:n_train])
+    val_sources = set(source_ids[n_train : n_train + n_val])
+
+    split_map: dict[str, Split] = {}
+    for source in source_ids:
+        if source in train_sources:
+            split_map[source] = Split.TRAIN
+        elif source in val_sources:
+            split_map[source] = Split.VAL
+        else:
+            split_map[source] = Split.TEST_ID
+    return split_map
+
+
+def _assign_splits(
+    examples: list[ConflictExample],
+    seed: int,
+    ratios: dict[str, float],
+    held_out_family: Family,
+    held_out_severity: int,
+    enable_ood_hard_swap: bool,
+) -> list[ConflictExample]:
+    source_map = _source_split(examples, seed=seed, ratios=ratios)
+
+    out: list[ConflictExample] = []
+    for ex in examples:
+        source = ex.source_image_id or infer_source_image_id(ex.image_path)
+        split = source_map[source]
+
+        heldout_family_flag = False
+        heldout_severity_flag = False
+
+        if ex.family == held_out_family:
+            split = Split.TEST_OOD_FAMILY
+            heldout_family_flag = True
+        elif ex.corrupt_modality != CorruptModality.NONE and ex.severity >= held_out_severity:
+            split = Split.TEST_OOD_SEVERITY
+            heldout_severity_flag = True
+        elif enable_ood_hard_swap and ex.operator == Operator.SWAP_HARD and ex.hard_swap_flag:
+            split = Split.TEST_OOD_HARD_SWAP
+
+        out.append(
+            replace(
+                ex,
+                split=split,
+                heldout_family_flag=heldout_family_flag,
+                heldout_severity_flag=heldout_severity_flag,
+            )
+        )
+    return out
+
+
+def _hard_swap_candidate(
+    base: ConflictExample,
+    donors: list[ConflictExample],
+    jaccard_min: float,
+    jaccard_max: float,
+    rng: random.Random,
+) -> ConflictExample | None:
+    candidates: list[ConflictExample] = []
+    for donor in donors:
+        if donor.base_id == base.base_id:
+            continue
+        if donor.family != base.family:
+            continue
+        if donor.answer_type != base.answer_type:
+            continue
+        if (donor.source_image_id or "") == (base.source_image_id or ""):
+            continue
+        score = noun_jaccard(base.text_input, donor.text_input)
+        if score < jaccard_min or score > jaccard_max:
+            continue
+        candidates.append(donor)
+
+    if not candidates:
+        return None
+    return rng.choice(candidates)
+
+
+def build_conflict_suite(
+    base_examples: list[ConflictExample],
+    *,
+    seed: int = 7,
+    held_out_family: Family = Family.ATTRIBUTE_COLOR,
+    held_out_severity: int = 3,
+    split_ratios: dict[str, float] | None = None,
+    vision_corruption_type: str = "occlusion",
+    vision_severities: list[int] | None = None,
+    color_vocab: list[str] | None = None,
+    hard_swap_jaccard_min: float = 0.2,
+    hard_swap_jaccard_max: float = 0.7,
+    include_both_variants: bool = False,
+    enable_ood_hard_swap: bool = False,
+    enforce_template_disjointness: bool = False,
+) -> tuple[list[ConflictExample], dict[str, Any]]:
+    if split_ratios is None:
+        split_ratios = {"train": 0.7, "val": 0.15, "test_id": 0.15}
+    if vision_severities is None:
+        vision_severities = [1, 2, 3]
+    if color_vocab is None:
+        color_vocab = ["red", "blue", "green", "yellow", "black", "white", "brown", "gray"]
+
+    rng = random.Random(seed)
+
+    normalized_base: list[ConflictExample] = []
+    for ex in base_examples:
+        if ex.operator != Operator.CLEAN:
+            clean_ex = replace(ex, operator=Operator.CLEAN, corrupt_modality=CorruptModality.NONE, severity=0)
+        else:
+            clean_ex = ex
+        clean_ex = _set_clean_defaults(clean_ex)
+        normalized_base.append(clean_ex)
 
     generated: list[ConflictExample] = []
-    for ex in clean_examples:
-        base = replace(
-            ex,
-            source_image_id=ex.source_image_id or infer_source_image_id(ex.image_path),
-            template_id=ex.template_id or infer_template_id(ex.question),
-            split=Split.TRAIN,
-            conflict_type=ConflictType.NONE,
-            corrupted_modality=CorruptedModality.NONE,
-            corruption_family="clean",
-            severity=0,
-            oracle_action=Action.REQUIRE_AGREEMENT,
-        )
-        generated.append(assign_oracle_labels(base))
+    for base in normalized_base:
+        generated.append(base)
 
-        topic = str(ex.metadata.get("topic", "generic"))
-        donors = [d for d in by_topic[topic] if d.example_id != ex.example_id]
-        if donors:
-            donor = rng.choice(donors)
-            generated.append(assign_oracle_labels(caption_swap(base, donor.text_input, same_topic=True, seed=seed)))
+        easy_pool = [d for d in normalized_base if d.base_id != base.base_id]
+        if easy_pool:
+            easy_donor = rng.choice(easy_pool)
+            generated.append(
+                caption_swap(
+                    base,
+                    donor_text=easy_donor.text_input,
+                    operator=Operator.SWAP_EASY,
+                    hard_swap_flag=False,
+                    seed=seed,
+                )
+            )
 
-        generated.append(assign_oracle_labels(typed_text_edit(base, ConflictType.ATTRIBUTE)))
-        generated.append(assign_oracle_labels(typed_text_edit(base, ConflictType.RELATION)))
-        generated.append(assign_oracle_labels(typed_text_edit(base, ConflictType.COUNT)))
+            hard_donor = _hard_swap_candidate(
+                base,
+                donors=normalized_base,
+                jaccard_min=hard_swap_jaccard_min,
+                jaccard_max=hard_swap_jaccard_max,
+                rng=rng,
+            )
+            if hard_donor is None:
+                generated.append(
+                    caption_swap(
+                        base,
+                        donor_text=easy_donor.text_input,
+                        operator=Operator.SWAP_HARD,
+                        hard_swap_flag=False,
+                        seed=seed,
+                    )
+                )
+            else:
+                generated.append(
+                    caption_swap(
+                        base,
+                        donor_text=hard_donor.text_input,
+                        operator=Operator.SWAP_HARD,
+                        hard_swap_flag=True,
+                        seed=seed,
+                    )
+                )
 
-        for severity in [1, 2, 3]:
-            mode = rng.choice(["blur", "occlusion", "distractor"])
-            generated.append(assign_oracle_labels(vision_corruption(base, mode=mode, severity=severity)))
+        generated.append(text_edit(base, color_vocab=color_vocab, seed=seed))
 
-    filtered = adversarial_filter(generated)
-    balanced = similarity_balanced_sampling(filtered, bins=4, per_bin=max(1, len(filtered) // 8), seed=seed)
+        for severity in sorted(set(int(s) for s in vision_severities)):
+            generated.append(
+                vision_corrupt(
+                    base,
+                    corruption_type=vision_corruption_type,
+                    severity=severity,
+                )
+            )
 
-    finalized = _disjoint_split_by_source(
-        balanced,
+        if include_both_variants:
+            both = replace(
+                text_edit(base, color_vocab=color_vocab, seed=seed),
+                example_id=f"{base.base_id}::both",
+                variant_id="both",
+                operator=Operator.BOTH,
+                corrupt_modality=CorruptModality.BOTH,
+                severity=max(vision_severities),
+            )
+            both.oracle_action = derive_oracle_action(CorruptModality.BOTH, is_ambiguous=True)
+            both.metadata = {
+                **both.metadata,
+                "both_variant": True,
+            }
+            generated.append(both)
+
+    assigned = _assign_splits(
+        generated,
+        seed=seed,
+        ratios=split_ratios,
         held_out_family=held_out_family,
         held_out_severity=held_out_severity,
-        seed=seed,
+        enable_ood_hard_swap=enable_ood_hard_swap,
     )
 
-    # Recompute oracle action after split for deterministic serialization.
-    finalized = [assign_oracle_labels(ex) for ex in finalized]
-    manifest = validate_split_integrity(finalized)
-    return finalized, manifest
+    assigned = sorted(assigned, key=lambda ex: ex.example_id)
+    manifest = validate_split_integrity(
+        assigned,
+        heldout_family=held_out_family,
+        heldout_severity=held_out_severity,
+        enforce_template_disjointness=enforce_template_disjointness,
+    )
+    manifest["config"] = {
+        "seed": seed,
+        "held_out_family": held_out_family.value,
+        "held_out_severity": held_out_severity,
+        "split_ratios": split_ratios,
+        "vision_corruption_type": vision_corruption_type,
+        "vision_severities": vision_severities,
+        "hard_swap_jaccard_min": hard_swap_jaccard_min,
+        "hard_swap_jaccard_max": hard_swap_jaccard_max,
+        "include_both_variants": include_both_variants,
+        "enable_ood_hard_swap": enable_ood_hard_swap,
+        "enforce_template_disjointness": enforce_template_disjointness,
+    }
+    manifest["distributions"] = {
+        "family": _distribution(assigned, key=lambda ex: ex.family.value),
+        "operator": _distribution(assigned, key=lambda ex: ex.operator.value),
+        "severity": _distribution(assigned, key=lambda ex: str(ex.severity)),
+        "split": _distribution(assigned, key=lambda ex: ex.split.value),
+    }
+    manifest["manifest_json"] = json.dumps(manifest, sort_keys=True)
+    return assigned, manifest
+
+
+def _distribution(examples: list[ConflictExample], key) -> dict[str, int]:
+    out: dict[str, int] = defaultdict(int)
+    for ex in examples:
+        out[str(key(ex))] += 1
+    return dict(sorted(out.items(), key=lambda kv: kv[0]))

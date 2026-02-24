@@ -47,7 +47,7 @@ def main() -> None:
             "--model_ckpt",
             str(train_dir / "carm_heads.pt"),
             "--split",
-            "test",
+            "test_id",
         ],
         check=True,
     )

@@ -2,21 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import torch
 
 from carm.data.io import write_jsonl
 from carm.data.labeling import derive_reliability_target
-from carm.data.schema import Action, ConflictExample
+from carm.data.schema import ConflictExample, CorruptModality, Family
 from carm.eval.baselines import BaseBaseline
 from carm.eval.metrics import summarize_metrics
 from carm.models.backbone import MockFrozenBackbone
 from carm.models.carm_model import CARMHeads, select_action
-from carm.models.policy import apply_action_and_generate
-
-
-def _normalize(s: str) -> str:
-    return " ".join(s.lower().split())
+from carm.models.policy import apply_action_and_generate, normalize_answer
 
 
 class CARMPredictor:
@@ -27,11 +24,18 @@ class CARMPredictor:
         self.backbone = backbone
         self.device = torch.device(device)
 
-    def predict(self, ex: ConflictExample) -> dict:
+    @staticmethod
+    def _vision_payload(ex: ConflictExample) -> str:
+        recipe = ex.metadata.get("vision_recipe") if isinstance(ex.metadata, dict) else None
+        if isinstance(recipe, dict) and "payload" in recipe:
+            return str(recipe["payload"])
+        return ex.image_path
+
+    def predict(self, ex: ConflictExample) -> dict[str, Any]:
         self.model.eval()
         with torch.no_grad():
-            mm = self.backbone.run_backbone_multimodal(ex.image_path, ex.text_input, ex.question)
-            pv = self.backbone.run_probe_vision_only(ex.image_path, ex.question)
+            mm = self.backbone.run_backbone_multimodal(self._vision_payload(ex), ex.text_input, ex.question)
+            pv = self.backbone.run_probe_vision_only(self._vision_payload(ex), ex.question)
             pt = self.backbone.run_probe_text_only(ex.text_input, ex.question)
 
             conflict_logits, reliability, action_logits = self.model.carm_forward(
@@ -43,15 +47,20 @@ class CARMPredictor:
             answer, abstained, audit = apply_action_and_generate(action, pv, pt)
 
             pred_conf_idx = int(torch.argmax(conflict_logits, dim=-1).item())
-            conflict_map = ["none", "object", "attribute", "relation", "count"]
-            confidence = float(torch.softmax(action_logits, dim=-1).max().item())
+            conflict_map = [
+                Family.NONE.value,
+                Family.EXISTENCE.value,
+                Family.COUNT.value,
+                Family.ATTRIBUTE_COLOR.value,
+            ]
+            pred_conf = conflict_map[min(pred_conf_idx, len(conflict_map) - 1)]
 
             return {
-                "pred_conflict_type": conflict_map[pred_conf_idx],
+                "pred_conflict_type": pred_conf,
                 "pred_action": action.value,
                 "final_answer": answer,
                 "abstained": bool(abstained),
-                "confidence": confidence,
+                "confidence": float(torch.softmax(action_logits, dim=-1).max().item()),
                 "r_v": float(reliability.squeeze(0)[0].item()),
                 "r_t": float(reliability.squeeze(0)[1].item()),
                 "audit": audit,
@@ -62,42 +71,45 @@ def evaluate_predictor(
     predictor: CARMPredictor | BaseBaseline,
     examples: list[ConflictExample],
     output_dir: str | Path,
-) -> dict:
+) -> dict[str, Any]:
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    records: list[dict] = []
+    records: list[dict[str, Any]] = []
     for ex in examples:
         pred = predictor.predict(ex)
-
-        # Baselines return dataclass; CARM returns dict.
         if not isinstance(pred, dict):
             pred = pred.__dict__
 
         rel_t = derive_reliability_target(
             evidence_modality=ex.evidence_modality,
-            corrupted_modality=ex.corrupted_modality,
+            corrupt_modality=ex.corrupt_modality,
             severity=ex.severity,
         )
 
         final_answer = str(pred["final_answer"])
-        correct = _normalize(final_answer) == _normalize(ex.gold_answer)
+        correct = normalize_answer(final_answer) == normalize_answer(ex.gold_answer)
 
-        row = {
+        row: dict[str, Any] = {
             "example_id": ex.example_id,
+            "base_id": ex.base_id,
+            "variant_id": ex.variant_id,
             "image_path": ex.image_path,
             "text_input": ex.text_input,
             "question": ex.question,
             "gold_answer": ex.gold_answer,
             "split": ex.split.value,
-            "conflict_type": ex.conflict_type.value,
-            "corrupted_modality": ex.corrupted_modality.value,
-            "corruption_family": ex.corruption_family,
+            "family": ex.family.value,
+            "operator": ex.operator.value,
+            "corrupt_modality": ex.corrupt_modality.value,
             "severity": ex.severity,
-            "evidence_modality": ex.evidence_modality.value,
+            "answer_type": ex.answer_type.value,
             "oracle_action": ex.oracle_action.value,
-            "pred_conflict_type": pred["pred_conflict_type"],
-            "pred_action": pred["pred_action"],
+            "heldout_family_flag": ex.heldout_family_flag,
+            "heldout_severity_flag": ex.heldout_severity_flag,
+            "hard_swap_flag": ex.hard_swap_flag,
+            "pred_conflict_type": str(pred["pred_conflict_type"]),
+            "pred_action": str(pred["pred_action"]),
             "r_v": float(pred["r_v"]),
             "r_t": float(pred["r_t"]),
             "abstained": bool(pred["abstained"]),
@@ -107,22 +119,12 @@ def evaluate_predictor(
             "target_r_v": rel_t.r_v,
             "target_r_t": rel_t.r_t,
         }
-
         if "audit" in pred:
             row["audit"] = pred["audit"]
         records.append(row)
 
     write_jsonl(out_dir / "per_example_predictions.jsonl", records)
     metrics = summarize_metrics(records)
-
-    # Acceptance checks aligned with proposal targets.
-    acceptance = {
-        "max_consistent_drop": 1.0,
-        "max_monotonicity_violation_rate": 0.15,
-        "max_ece": 0.12,
-        "max_brier": 0.25,
-    }
-    metrics["acceptance_thresholds"] = acceptance
 
     with (out_dir / "metrics.json").open("w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)

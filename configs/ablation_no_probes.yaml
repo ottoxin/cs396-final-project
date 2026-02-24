@@ -1,4 +1,3 @@
 extends: default
-
-ablation:
-  remove_probe_features: true
+model:
+  probe_feature_size: 0

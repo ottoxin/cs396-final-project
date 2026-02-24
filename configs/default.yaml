@@ -1,9 +1,73 @@
 seed: 7
 
 data:
-  held_out_family: text_edit_relation
-  held_out_severity: 3
-  max_severity: 3
+  source: official_json
+  paths:
+    vqa_questions_train: data/raw/vqa/v2_OpenEnded_mscoco_train2014_questions.json
+    vqa_questions_val: data/raw/vqa/v2_OpenEnded_mscoco_val2014_questions.json
+    vqa_annotations_train: data/raw/vqa/v2_mscoco_train2014_annotations.json
+    vqa_annotations_val: data/raw/vqa/v2_mscoco_val2014_annotations.json
+    coco_captions_train: data/raw/coco/annotations/captions_train2014.json
+    coco_captions_val: data/raw/coco/annotations/captions_val2014.json
+    coco_images_train_dir: data/raw/coco/train2014
+    coco_images_val_dir: data/raw/coco/val2014
+    base_examples_jsonl: data/interim/base_examples.jsonl
+    conflict_suite_full_jsonl: data/generated/conflict_suite_full.jsonl
+    conflict_suite_full_manifest_json: data/generated/conflict_suite_full.manifest.json
+    pilot_output_jsonl: data/generated/pilots/pilot_3k_base.jsonl
+  families:
+    - existence
+    - count
+    - attribute_color
+  color_vocab:
+    - red
+    - blue
+    - green
+    - yellow
+    - black
+    - white
+    - brown
+    - gray
+    - orange
+    - pink
+    - purple
+  consistency_filter: true
+  max_per_family: null
+
+conflict:
+  operators:
+    - swap_easy
+    - swap_hard
+    - text_edit
+    - vision_corrupt
+  include_both: false
+  vision_corruption:
+    type: occlusion
+    severities: [1, 2, 3]
+  swap_hard:
+    noun_jaccard_min: 0.2
+    noun_jaccard_max: 0.7
+
+splits:
+  ratios:
+    train: 0.7
+    val: 0.15
+    test_id: 0.15
+  ood_family: attribute_color
+  ood_severity: 3
+  enable_ood_hard_swap: false
+  enforce_template_disjointness: false
+
+sampling:
+  pilot:
+    strategy: stratified_base
+    size: 3000
+    seed: 7
+
+policy:
+  abstain_token: "<ABSTAIN>"
+  semantic_threshold: 0.82
+  min_overlap_tokens: 2
 
 model:
   hidden_size: 128
@@ -14,6 +78,11 @@ backbone:
   name: mock_frozen_backbone
   hidden_size: 128
   seq_len: 32
+  registry:
+    qwen2_5_vl_7b:
+      model_name: Qwen/Qwen2.5-VL-7B-Instruct
+    llava_next_8b:
+      model_name: llava-hf/llava-v1.6-8b
 
 training:
   batch_size: 4
@@ -24,12 +93,20 @@ training:
   device: cpu
 
 eval:
-  semantic_threshold: 0.82
-  min_overlap_tokens: 2
   uncertainty_entropy_threshold: 1.9
+  metrics:
+    - accuracy
+    - action_accuracy
+    - macro_f1_conflict
+    - risk_coverage
+    - monotonicity_violation_rate
+    - ece
+    - brier
+  thresholds:
+    monotonicity_violation_rate_max: 0.15
+    ece_max: 0.12
+    brier_max: 0.25
 
-acceptance:
-  consistent_drop_max_abs_points: 1.0
-  monotonicity_violation_rate_max: 0.15
-  ece_max: 0.12
-  brier_max: 0.25
+runtime:
+  device: cpu
+  notes: Phase A mock-first configuration

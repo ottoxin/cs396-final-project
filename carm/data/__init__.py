@@ -1,1 +1,1 @@
-"""Data schemas and construction pipeline."""
+"""Dataset schema, ingestion, construction, integrity, and sampling utilities."""

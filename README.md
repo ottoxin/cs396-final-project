@@ -5,9 +5,8 @@ This repository is in Phase A rebuild mode and follows [PLAN.md](PLAN.md).
 ## Governance Files
 
 - [PLAN.md](PLAN.md): source of truth for protocol decisions.
-- [REPORT.md](REPORT.md): canonical run ledger.
 - [WRITEUP.md](WRITEUP.md): scientific narrative of implementation progress and results.
-- `AGENT.md` and `LOG.md`: optional local notes, intentionally gitignored.
+- `REPORT.md`, `AGENT.md`, and `LOG.md`: optional local notes, intentionally gitignored.
 
 ## Setup
 
@@ -16,6 +15,20 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+## Repository Layout
+
+- `carm/data/`: dataset schema, VQAv2+COCO ingestion, conflict construction, integrity checks, sampling.
+- `carm/eval/`: baselines, evaluator, and metric computations.
+- `carm/models/`: mock backbone, adapter interfaces, registry, and CARM model modules.
+- `carm/train/`: training dataset/loss/trainer scaffolding.
+- `configs/`: protocol defaults and runtime profiles (`default`, `cpu_local`, `cloud_gpu`, ablations).
+- `scripts/`: runnable CLIs for download/build/generate/sample/check/evaluate/validate-docs.
+- `tests/`: unit and smoke tests for data pipeline, integrity, and evaluation contracts.
+- `data/`: local datasets and generated artifacts (`raw/`, `interim/`, `generated/`, `clean/`).
+- `artifacts/`: baseline outputs and run artifacts.
+- `PLAN.md`: protocol source of truth.
+- `REPORT.md`: local run ledger (gitignored in this repo).
 
 ## Phase A Runtime Workflow
 
@@ -99,7 +112,7 @@ Real runnable adapters for Qwen2.5-VL-7B and LLaVA-NeXT are represented as stubs
 1. After each run with artifacts, append one row in `REPORT.md` Run Ledger.
 2. After each meaningful implementation milestone, update `WRITEUP.md` with a short scientific narrative of what changed and why.
 3. If a change affects protocol/scope, update `PLAN.md` in the same commit and reference the corresponding run context from `REPORT.md`.
-4. Keep `AGENT.md` and `LOG.md` as local working notes only (not committed).
+4. Keep `REPORT.md`, `AGENT.md`, and `LOG.md` as local working notes only (not committed).
 
 ## Docs Contract Validation
 
@@ -108,7 +121,7 @@ python3 scripts/validate_docs_contract.py
 python3 scripts/validate_docs_contract.py --smoke
 ```
 
-The validator always requires `REPORT.md`. `LOG.md` is validated only when the file is present locally.
+The validator supports local-only docs. It validates `REPORT.md` and/or `LOG.md` when present.
 
 ## Common Failure Modes
 

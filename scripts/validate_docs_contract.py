@@ -377,7 +377,16 @@ def run_smoke() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate REPORT.md and LOG.md contract.")
-    parser.add_argument("--report", default="REPORT.md", help="Path to REPORT.md")
+    parser.add_argument(
+        "--report",
+        default="REPORT.md",
+        help="Path to REPORT.md (optional unless --require-report is set)",
+    )
+    parser.add_argument(
+        "--require-report",
+        action="store_true",
+        help="Fail if REPORT.md is missing.",
+    )
     parser.add_argument(
         "--log",
         default="LOG.md",
@@ -403,16 +412,29 @@ def main() -> int:
             run_smoke()
             return 0
 
-        validate_report(Path(args.report))
-
+        report_path = Path(args.report)
         log_path = Path(args.log)
-        if log_path.exists():
+        report_exists = report_path.exists()
+        log_exists = log_path.exists()
+
+        if report_exists:
+            validate_report(report_path)
+        elif args.require_report:
+            raise ContractError(f"Missing required file: {report_path}")
+
+        if log_exists:
             validate_log(log_path)
-            print("Docs contract validation passed (REPORT.md and LOG.md).")
         elif args.require_log:
             raise ContractError(f"Missing required file: {log_path}")
-        else:
+
+        if report_exists and log_exists:
+            print("Docs contract validation passed (REPORT.md and LOG.md).")
+        elif report_exists and not log_exists:
             print("Docs contract validation passed (REPORT.md; LOG.md not present).")
+        elif log_exists and not report_exists:
+            print("Docs contract validation passed (LOG.md; REPORT.md not present).")
+        else:
+            print("Docs contract validation passed (REPORT.md and LOG.md not present).")
         return 0
     except ContractError as exc:
         print(f"Docs contract validation failed: {exc}", file=sys.stderr)

@@ -1,6 +1,6 @@
 # CARM Top-Tier Plan (VQAv2 + COCO Captions)
 
-## 0) North-star claim (paper-level)
+## 0) Claim (paper-level)
 We frame multimodal conflict handling as separable supervised decisions:
 1) conflict type prediction,
 2) question-conditioned modality reliability estimation (`r_v`, `r_t`),
@@ -8,6 +8,11 @@ We frame multimodal conflict handling as separable supervised decisions:
 4) action-conditioned generation.
 
 Main paper claim: this decomposition improves OOD arbitration and calibrated selective prediction under disagreement, beyond obvious routing heuristics.
+
+### 0.1 Overview plan by version
+- **v1 (current locked protocol. We may end here first for purpose for the class.):** Build Conflict Suite on VQAv2+COCO with families `existence/count/attribute_color`, operators `swap_easy/swap_hard/text_edit/vision_corrupt`, OOD-family + OOD-severity evaluation, and full baseline/reporting pipeline.
+- **v2 (harder single-dataset protocol):** Extend conflict stress testing within the same base dataset (for example, optional both-corrupted defaults, stricter hard-swap/OOD-hard-swap emphasis, and tighter integrity constraints) while preserving v1 comparability.
+- **v3 (cross-dataset generalization):** Expand to multi-dataset evaluation (for example adding GQA and one instruction-following set), then validate arbitration/calibration transfer across datasets and backbone families.
 
 ---
 
@@ -224,4 +229,3 @@ Still required to match final paper claim:
 
 - `PLAN.md` is the single source of truth for research decisions and frozen defaults.
 - Any change to families, operators, OOD protocol, backbones, or acceptance criteria must update this file in the same commit as code/config changes.
-- `AGENT.md` must focus on engineering behavior and quality control, not duplicate this plan.

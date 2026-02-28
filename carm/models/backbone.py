@@ -173,7 +173,7 @@ class Qwen25VLAdapter:
 
         self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self.model_name,
-            torch_dtype=self.dtype,
+            dtype=self.dtype,
             low_cpu_mem_usage=True,
         )
         self._model.to(self.device)
@@ -222,11 +222,46 @@ class Qwen25VLAdapter:
         assert self._processor is not None
 
         if image_path is None:
-            batch = self._processor(text=[prompt], return_tensors="pt")
+            chat_text = prompt
+            if hasattr(self._processor, "apply_chat_template"):
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ]
+                chat_text = self._processor.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            batch = self._processor(text=[chat_text], return_tensors="pt")
         else:
             with Image.open(image_path) as img:
                 rgb = img.convert("RGB")
-                batch = self._processor(text=[prompt], images=[rgb], return_tensors="pt")
+                chat_text = prompt
+                if hasattr(self._processor, "apply_chat_template"):
+                    messages = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image"},
+                                {"type": "text", "text": prompt},
+                            ],
+                        }
+                    ]
+                    chat_text = self._processor.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                batch = self._processor(
+                    text=[chat_text],
+                    images=[rgb],
+                    return_tensors="pt",
+                )
 
         for key, value in list(batch.items()):
             if isinstance(value, torch.Tensor):

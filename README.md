@@ -125,8 +125,16 @@ python3 scripts/check_data_integrity.py \
 python3 scripts/run_baselines.py \
   --config configs/cpu_local.yaml \
   --input_jsonl data/generated/pilots/pilot_3k_base.jsonl \
-  --output_dir artifacts/baselines/pilot_3k
+  --output_dir artifacts/baselines/pilot_3k \
+  --resume \
+  --progress-every 500
 ```
+
+Notes:
+- Per-run logs are written to `<output_dir>/run.log` (or override with `--log-file`).
+- `--resume` supports interruption recovery:
+  - skips baseline folders that already contain `metrics.json`,
+  - resumes per-example prediction files when possible.
 
 ## Class-Medium Workflow (CS396 Scale)
 
@@ -178,6 +186,26 @@ Current class-medium artifact counts (2026-02-28):
 - `data/generated/conflict_suite_class_medium.jsonl`: `105,000`
 - `data/generated/pilots/pilot_3k_class_medium.jsonl`: `21,000`
 
+### Qwen2.5-VL Baseline Run (GPU)
+
+Use this profile to run baselines with the runnable Qwen adapter:
+
+```bash
+pip install -e .
+```
+
+```bash
+python3 scripts/run_baselines.py \
+  --config configs/class_medium_final_qwen.yaml \
+  --input_jsonl data/generated/pilots/pilot_3k_class_medium_real_vision.jsonl \
+  --output_dir artifacts/baselines/class_medium_final_qwen \
+  --split all \
+  --resume \
+  --progress-every 500
+```
+
+The first run downloads Qwen weights from Hugging Face.
+
 ## Output Layout
 
 - `data/raw/...`: downloaded official artifacts.
@@ -197,8 +225,9 @@ Current class-medium artifact counts (2026-02-28):
 
 ## Mock-First Note
 
-Phase A is mock-backbone first for protocol validation and reproducibility checks.
-Real runnable adapters for Qwen2.5-VL-7B and LLaVA-NeXT are represented as stubs and are planned for the next implementation wave.
+Phase A remains mock-first for protocol validation and reproducibility checks.
+Qwen2.5-VL baseline inference is now runnable via `configs/class_medium_final_qwen.yaml`.
+LLaVA-NeXT remains a stub adapter for the next implementation wave.
 
 ## Documentation Discipline
 

@@ -214,7 +214,7 @@ Implemented now:
 - deterministic vision-corrupt materialization pipeline for pilot (`scripts/materialize_vision_corrupt.py`) with input/output hashes and optional image-directory fingerprint
 
 Still required to match final paper claim:
-- real Qwen2.5-VL and LLaVA-NeXT adapters
+- LLaVA-NeXT runnable adapter (Qwen2.5-VL baseline adapter is now wired/runnable)
 - production multi-pass caching pipeline
 - final operator set and metadata alignment with v1 spec
 - large-scale baseline/CARM runs on non-smoke artifacts with full reporting tables
@@ -229,7 +229,7 @@ Still required to match final paper claim:
 3) run CARM training/evaluation ablations on class-medium final pilot and log outputs
 4) update WRITEUP tables/figures with class-medium ID/OOD metrics
 5) decide whether to rebuild default-path full suite or keep class-medium as primary class-project track
-6) integrate real backbone adapters while preserving mock mode for tests
+6) integrate runnable LLaVA-NeXT adapter while preserving mock mode for tests
 
 ---
 

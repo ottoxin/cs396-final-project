@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from carm.data.io import write_jsonl
+from carm.data.io import read_jsonl
 from carm.data.labeling import derive_reliability_target
 from carm.data.schema import ConflictExample, CorruptModality, Family
 from carm.eval.baselines import BaseBaseline
@@ -71,59 +72,97 @@ def evaluate_predictor(
     predictor: CARMPredictor | BaseBaseline,
     examples: list[ConflictExample],
     output_dir: str | Path,
+    *,
+    resume: bool = False,
+    progress_every: int = 500,
 ) -> dict[str, Any]:
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    total = len(examples)
+    target_ids = {ex.example_id for ex in examples}
+    predictions_path = out_dir / "per_example_predictions.jsonl"
+
     records: list[dict[str, Any]] = []
-    for ex in examples:
-        pred = predictor.predict(ex)
-        if not isinstance(pred, dict):
-            pred = pred.__dict__
+    completed_ids: set[str] = set()
+    if resume and predictions_path.exists():
+        existing = read_jsonl(predictions_path)
+        for row in existing:
+            ex_id = str(row.get("example_id", ""))
+            if not ex_id or ex_id not in target_ids or ex_id in completed_ids:
+                continue
+            records.append(row)
+            completed_ids.add(ex_id)
+        if completed_ids:
+            print(
+                f"[{predictor.name}] resume loaded {len(completed_ids)}/{total} predictions from {predictions_path}"
+            )
 
-        rel_t = derive_reliability_target(
-            evidence_modality=ex.evidence_modality,
-            corrupt_modality=ex.corrupt_modality,
-            severity=ex.severity,
-        )
+    mode = "a" if resume and predictions_path.exists() else "w"
+    processed = len(completed_ids)
+    start = time.time()
 
-        final_answer = str(pred["final_answer"])
-        correct = normalize_answer(final_answer) == normalize_answer(ex.gold_answer)
+    with predictions_path.open(mode, encoding="utf-8") as f:
+        for ex in examples:
+            if ex.example_id in completed_ids:
+                continue
 
-        row: dict[str, Any] = {
-            "example_id": ex.example_id,
-            "base_id": ex.base_id,
-            "variant_id": ex.variant_id,
-            "image_path": ex.image_path,
-            "text_input": ex.text_input,
-            "question": ex.question,
-            "gold_answer": ex.gold_answer,
-            "split": ex.split.value,
-            "family": ex.family.value,
-            "operator": ex.operator.value,
-            "corrupt_modality": ex.corrupt_modality.value,
-            "severity": ex.severity,
-            "answer_type": ex.answer_type.value,
-            "oracle_action": ex.oracle_action.value,
-            "heldout_family_flag": ex.heldout_family_flag,
-            "heldout_severity_flag": ex.heldout_severity_flag,
-            "hard_swap_flag": ex.hard_swap_flag,
-            "pred_conflict_type": str(pred["pred_conflict_type"]),
-            "pred_action": str(pred["pred_action"]),
-            "r_v": float(pred["r_v"]),
-            "r_t": float(pred["r_t"]),
-            "abstained": bool(pred["abstained"]),
-            "final_answer": final_answer,
-            "correct": bool(correct),
-            "confidence": float(pred.get("confidence", 0.0)),
-            "target_r_v": rel_t.r_v,
-            "target_r_t": rel_t.r_t,
-        }
-        if "audit" in pred:
-            row["audit"] = pred["audit"]
-        records.append(row)
+            pred = predictor.predict(ex)
+            if not isinstance(pred, dict):
+                pred = pred.__dict__
 
-    write_jsonl(out_dir / "per_example_predictions.jsonl", records)
+            rel_t = derive_reliability_target(
+                evidence_modality=ex.evidence_modality,
+                corrupt_modality=ex.corrupt_modality,
+                severity=ex.severity,
+            )
+
+            final_answer = str(pred["final_answer"])
+            correct = normalize_answer(final_answer) == normalize_answer(ex.gold_answer)
+
+            row: dict[str, Any] = {
+                "example_id": ex.example_id,
+                "base_id": ex.base_id,
+                "variant_id": ex.variant_id,
+                "image_path": ex.image_path,
+                "text_input": ex.text_input,
+                "question": ex.question,
+                "gold_answer": ex.gold_answer,
+                "split": ex.split.value,
+                "family": ex.family.value,
+                "operator": ex.operator.value,
+                "corrupt_modality": ex.corrupt_modality.value,
+                "severity": ex.severity,
+                "answer_type": ex.answer_type.value,
+                "oracle_action": ex.oracle_action.value,
+                "heldout_family_flag": ex.heldout_family_flag,
+                "heldout_severity_flag": ex.heldout_severity_flag,
+                "hard_swap_flag": ex.hard_swap_flag,
+                "pred_conflict_type": str(pred["pred_conflict_type"]),
+                "pred_action": str(pred["pred_action"]),
+                "r_v": float(pred["r_v"]),
+                "r_t": float(pred["r_t"]),
+                "abstained": bool(pred["abstained"]),
+                "final_answer": final_answer,
+                "correct": bool(correct),
+                "confidence": float(pred.get("confidence", 0.0)),
+                "target_r_v": rel_t.r_v,
+                "target_r_t": rel_t.r_t,
+            }
+            if "audit" in pred:
+                row["audit"] = pred["audit"]
+
+            records.append(row)
+            f.write(json.dumps(row, ensure_ascii=True) + "\n")
+            f.flush()
+
+            processed += 1
+            if progress_every > 0 and (processed % progress_every == 0 or processed == total):
+                elapsed = max(1e-6, time.time() - start)
+                rate = processed / elapsed
+                pct = (processed / max(1, total)) * 100.0
+                print(f"[{predictor.name}] progress {processed}/{total} ({pct:.1f}%) @ {rate:.2f} ex/s")
+
     metrics = summarize_metrics(records)
 
     with (out_dir / "metrics.json").open("w", encoding="utf-8") as f:

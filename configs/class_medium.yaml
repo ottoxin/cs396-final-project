@@ -1,0 +1,22 @@
+extends: default
+
+data:
+  paths:
+    base_examples_jsonl: data/interim/base_examples_class_medium.jsonl
+    conflict_suite_full_jsonl: data/generated/conflict_suite_class_medium.jsonl
+    conflict_suite_full_manifest_json: data/generated/conflict_suite_class_medium.manifest.json
+    pilot_output_jsonl: data/generated/pilots/pilot_3k_class_medium.jsonl
+  max_per_family: 5000
+
+sampling:
+  pilot:
+    size: 3000
+
+training:
+  device: cuda
+  batch_size: 8
+  epochs: 3
+
+runtime:
+  device: cuda
+  notes: Class medium profile (max_per_family=5000)

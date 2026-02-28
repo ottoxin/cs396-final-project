@@ -11,13 +11,14 @@ from typing import Any
 from carm.data.integrity import validate_split_integrity
 from carm.data.labeling import derive_oracle_action
 from carm.data.schema import (
+    AnswerType,
     ConflictExample,
     CorruptModality,
     Family,
     Operator,
     Split,
 )
-from carm.data.transforms import caption_swap, noun_jaccard, text_edit, vision_corrupt
+from carm.data.transforms import STOPWORDS, caption_swap, text_edit, vision_corrupt
 
 
 def infer_source_image_id(image_path: str) -> str:
@@ -27,6 +28,22 @@ def infer_source_image_id(image_path: str) -> str:
 def infer_template_id(question: str) -> str:
     normalized = " ".join(re.findall(r"[a-z0-9]+", question.lower()))
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+
+
+def _noun_like_tokens(text: str, cache: dict[str, set[str]]) -> set[str]:
+    cached = cache.get(text)
+    if cached is not None:
+        return cached
+    toks = re.findall(r"[a-z0-9]+", text.lower())
+    out = {t for t in toks if t not in STOPWORDS and len(t) > 2}
+    cache[text] = out
+    return out
+
+
+def _jaccard_tokens(a: set[str], b: set[str]) -> float:
+    if not a and not b:
+        return 1.0
+    return len(a.intersection(b)) / max(1, len(a.union(b)))
 
 
 def _set_clean_defaults(example: ConflictExample) -> ConflictExample:
@@ -119,18 +136,17 @@ def _hard_swap_candidate(
     jaccard_min: float,
     jaccard_max: float,
     rng: random.Random,
+    token_cache: dict[str, set[str]],
 ) -> ConflictExample | None:
+    base_tokens = _noun_like_tokens(base.text_input, token_cache)
     candidates: list[ConflictExample] = []
     for donor in donors:
         if donor.base_id == base.base_id:
             continue
-        if donor.family != base.family:
-            continue
-        if donor.answer_type != base.answer_type:
-            continue
         if (donor.source_image_id or "") == (base.source_image_id or ""):
             continue
-        score = noun_jaccard(base.text_input, donor.text_input)
+        donor_tokens = _noun_like_tokens(donor.text_input, token_cache)
+        score = _jaccard_tokens(base_tokens, donor_tokens)
         if score < jaccard_min or score > jaccard_max:
             continue
         candidates.append(donor)
@@ -174,6 +190,12 @@ def build_conflict_suite(
         clean_ex = _set_clean_defaults(clean_ex)
         normalized_base.append(clean_ex)
 
+    # Pre-index donors by (family, answer_type) to avoid repeated full scans in hard swap.
+    donors_by_bucket: dict[tuple[Family, AnswerType], list[ConflictExample]] = defaultdict(list)
+    for ex in normalized_base:
+        donors_by_bucket[(ex.family, ex.answer_type)].append(ex)
+    token_cache: dict[str, set[str]] = {}
+
     generated: list[ConflictExample] = []
     for base in normalized_base:
         generated.append(base)
@@ -193,10 +215,11 @@ def build_conflict_suite(
 
             hard_donor = _hard_swap_candidate(
                 base,
-                donors=normalized_base,
+                donors=donors_by_bucket[(base.family, base.answer_type)],
                 jaccard_min=hard_swap_jaccard_min,
                 jaccard_max=hard_swap_jaccard_max,
                 rng=rng,
+                token_cache=token_cache,
             )
             if hard_donor is None:
                 generated.append(

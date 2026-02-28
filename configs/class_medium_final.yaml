@@ -1,0 +1,8 @@
+extends: class_medium
+
+data:
+  paths:
+    pilot_output_jsonl: data/generated/pilots/pilot_3k_class_medium_real_vision.jsonl
+
+runtime:
+  notes: Class medium final profile with pixel-level vision corruption materialized for pilot

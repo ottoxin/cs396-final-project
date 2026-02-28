@@ -8,6 +8,7 @@ __pycache__/
 .DS_Store
 artifacts/
 data/generated/
+data/hf_release/
 logs/
 AGENT.md
 LOG.md

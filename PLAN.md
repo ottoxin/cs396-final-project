@@ -197,6 +197,11 @@ These defaults are active unless overridden in config/CLI:
 - variants per base sample: `swap_easy`, `swap_hard`, `text_edit`, `vision_corrupt`
 - abstention output token/string: `<ABSTAIN>`
 
+Execution profile note:
+- Class-project profile `configs/class_medium.yaml` is an override profile for practical iteration (`max_per_family=5000`) with dedicated `*_class_medium` artifact paths; it does not change v1 protocol semantics.
+- GPU execution policy: treat GPU runs as final-level cost runs. Perform a small-data preflight first, then freeze run spec (`config`, `dataset_manifest`, `output_dir`) before launch to avoid avoidable reruns.
+- Final-run profile `configs/class_medium_final.yaml` points to `pilot_3k_class_medium_real_vision.jsonl` where vision-corrupt rows use materialized pixel-level occlusion images.
+
 ---
 
 ## 11) Current codebase snapshot and gap-to-claim
@@ -204,23 +209,26 @@ These defaults are active unless overridden in config/CLI:
 Implemented now:
 - end-to-end scaffold (data schema, generation, labels, train/eval scripts, tests)
 - deterministic mock backbone path for CPU-local verification
+- class-medium data profile and artifacts: `15,000` base -> `105,000` suite -> `21,000` pilot with integrity manifest
+- hard-swap construction throughput patch (donor bucketing by family/answer type + cached noun-token Jaccard features)
+- deterministic vision-corrupt materialization pipeline for pilot (`scripts/materialize_vision_corrupt.py`) with input/output hashes and optional image-directory fingerprint
 
 Still required to match final paper claim:
 - real Qwen2.5-VL and LLaVA-NeXT adapters
 - production multi-pass caching pipeline
 - final operator set and metadata alignment with v1 spec
-- missing two-pass self-consistency baseline in baseline runner
-- complete OOD split generation and reporting hooks
+- large-scale baseline/CARM runs on non-smoke artifacts with full reporting tables
+- complete OOD reporting hooks in final paper table/figure pipeline
 
 ---
 
 ## 12) Immediate engineering priorities (next milestones)
 
-1) encode v1 defaults in configs and generator CLI paths
-2) finalize Conflict Suite v1 operators + metadata
-3) implement two-pass self-consistency baseline with abstention
-4) finalize OOD-family and OOD-severity split generation/reporting
-5) add risk-coverage + calibration artifacts to evaluator outputs
+1) run baselines on `data/generated/pilots/pilot_3k_class_medium.jsonl` and log in `REPORT.md`
+2) run final baselines on `data/generated/pilots/pilot_3k_class_medium_real_vision.jsonl` (config: `class_medium_final.yaml`) and log in `REPORT.md`
+3) run CARM training/evaluation ablations on class-medium final pilot and log outputs
+4) update WRITEUP tables/figures with class-medium ID/OOD metrics
+5) decide whether to rebuild default-path full suite or keep class-medium as primary class-project track
 6) integrate real backbone adapters while preserving mock mode for tests
 
 ---

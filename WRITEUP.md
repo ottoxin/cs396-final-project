@@ -14,17 +14,23 @@ Split assignment is performed at source-image level to prevent leakage across va
 
 In the current official-data build with consistency filtering enabled, the base-construction stage processed 658,111 candidate VQAv2 question-answer records and retained 184,590 clean base examples (28.0%), while filtering out 473,521 records (72.0%). The filtered set consists of 308,623 records removed by family gating, 22,060 removed by answer-normalization failure, and 142,838 removed by caption-consistency failure. The retained family composition is 150,582 existence examples, 15,207 count examples, and 18,801 attribute-color examples.
 
-### CARM Supervision Refinement
+### CARM Supervision Refinement (Five-Category Protocol)
 
-The project objective is to train the CARM module to select among four entropy-conditioned actions: high-entropy vision and high-entropy text (`ABSTAIN`), low-entropy vision and high-entropy text (`TRUST_VISION`), high-entropy vision and low-entropy text (`TRUST_TEXT`), and low-entropy vision and low-entropy text (require agreement and return an answer only when both modalities agree; otherwise abstain).
+The project objective is to train the CARM module to select among four entropy-conditioned actions: high-entropy vision and high-entropy text (`ABSTAIN`), low-entropy vision and high-entropy text (`TRUST_VISION`), high-entropy vision and low-entropy text (`TRUST_TEXT`), and low-entropy vision and low-entropy text (`REQUIRE_AGREEMENT`, with abstention on disagreement).
 
-Under the current text-perturbation strategy, captions are often modified so that they imply a different answer while remaining equally plausible as evidence for the question. Assigning these cases to `TRUST_VISION` can create a misleading training signal, because both modalities may appear low entropy yet disagree semantically.
+To provide deterministic supervision for these actions, we use five data categories: C1 clean text + clean image, C2 `DIFFERENT` text + clean image, C3 `IRRELEVANT` text + clean image, C4 clean text + irrelevant image, and C5 `IRRELEVANT` text + irrelevant image. Category-to-action mapping is fixed: C1/C2 -> `REQUIRE_AGREEMENT`, C3 -> `TRUST_VISION`, C4 -> `TRUST_TEXT`, and C5 -> `ABSTAIN`.
 
-To provide finer-grained supervision, we propose two text-edit categories. `IRRELEVANT` edits remove or alter answer-bearing caption content so that text no longer supports answering the question; these cases should map to `TRUST_VISION`. `DIFFERENT` edits preserve answerability but change the implied answer (for example, replacing color or count tokens); these cases should follow the same oracle policy as clean low-entropy/low-entropy examples, namely agreement checking with abstention on disagreement.
+| Category | Text condition | Image condition | Oracle action | Expected behavior | LLM caption edit |
+| --- | --- | --- | --- | --- | --- |
+| C1 | clean | clean | `REQUIRE_AGREEMENT` | return answer only on agreement; abstain on disagreement | no |
+| C2 | `DIFFERENT` | clean | `REQUIRE_AGREEMENT` | disagreement stress case; abstain when unimodal answers differ | yes |
+| C3 | `IRRELEVANT` | clean | `TRUST_VISION` | trust vision answer | yes |
+| C4 | clean | irrelevant | `TRUST_TEXT` | trust text answer | no |
+| C5 | `IRRELEVANT` | irrelevant | `ABSTAIN` | abstain (neither modality provides reliable evidence) | yes |
 
-A practical data-construction recipe is a balanced three-way mix: one-third `clean`, one-third `IRRELEVANT`, and one-third `DIFFERENT`, generated in API batches (for example, with GPT-5-nano). In this setup, `clean` and `DIFFERENT` share the same oracle policy, while `IRRELEVANT` maps to `TRUST_VISION`. The current working estimate for text disruption cost is approximately $0.075 per 1,000 samples under this 1/3-1/3-1/3 split.
+For the refined run, the target dataset is `90,000` examples with equal category balance (`18,000` per category). With three families (`existence`, `count`, `attribute_color`), this yields `6,000` examples per `(family x category)` cell. Under the default `70/15/15` split, each cell has approximately `4,200` train, `900` validation, and `900` test examples.
 
-Image perturbation remains an open labeling problem. Blur or occlusion does not guarantee that visual evidence becomes unanswerable, so oracle actions are not always known a priori. One option is to use a vision-capable model to determine whether the perturbed image still answers the question and then assign oracle labels accordingly. Another option is COCO mask-guided occlusion: extract question-relevant objects, apply targeted versus non-targeted occlusions, and retain cases where answerability is controlled by construction. This approach is likely most useful for counting and less direct for attribute-color questions.
+Caption-edit workload follows directly from category definitions. LLM caption perturbation is required for C2, C3, and C5 (`3/5` of the dataset). At `90,000` total examples, this corresponds to `54,000` caption edits, with `DIFFERENT:IRRELEVANT = 1:2` (`18,000` vs `36,000`). Image-side irrelevance for C4/C5 is produced by deterministic image swapping rather than blur/occlusion severity edits.
 
 The following raw-to-constructed examples illustrate the three active families and show how source annotations map into clean base records.
 
@@ -123,7 +129,7 @@ The `text_edit` variant applies family-aligned textual perturbation. Existence e
 
 ### A4. Deterministic Oracle Action Assignment
 
-Oracle action labels are deterministic functions of corruption modality. Clean examples (`none`) map to `REQUIRE_AGREEMENT`, text-corrupted examples map to `TRUST_VISION`, and vision-corrupted examples map to `TRUST_TEXT`. Optional both-corrupted examples, when enabled with ambiguity, map to `ABSTAIN`. This mapping is applied uniformly across all generated records and is independent of model predictions.
+Under the refined five-category protocol, oracle action labels are deterministic functions of category: C1 (clean text + clean image) maps to `REQUIRE_AGREEMENT`, C2 (`DIFFERENT` text + clean image) maps to `REQUIRE_AGREEMENT`, C3 (`IRRELEVANT` text + clean image) maps to `TRUST_VISION`, C4 (clean text + irrelevant image) maps to `TRUST_TEXT`, and C5 (`IRRELEVANT` text + irrelevant image) maps to `ABSTAIN`. For backward compatibility with legacy v1 data lacking subtype/category metadata, the fallback policy remains modality-based (`none` -> `REQUIRE_AGREEMENT`, `text` -> `TRUST_VISION`, `vision` -> `TRUST_TEXT`, `both/ambiguous` -> `ABSTAIN`).
 
 ### A5. Split Assignment, OOD Overrides, and Manifests
 

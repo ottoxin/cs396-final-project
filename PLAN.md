@@ -47,6 +47,7 @@ Each base example contains:
 - `swap_hard`: within-bucket swap to reduce topic shortcuts
 - `text_edit`: family-aligned edits (count/negation/color)
 - `vision_corrupt`: one corruption type first, severities `{1,2,3}`
+- `image_swap_irrelevant` (refined protocol): replace the source image with an image that is irrelevant to the question-answer evidence
 
 Optional extension: both-corrupted or ambiguous variants for abstention stress-testing.
 
@@ -60,11 +61,17 @@ Optional extension: both-corrupted or ambiguous variants for abstention stress-t
 - ground-truth answer `y`
 - reference action `a*`
 
-### 2.5 Refined text-supervision protocol (active for CARM training)
-- text mode buckets: `clean`, `IRRELEVANT`, `DIFFERENT`
-- target mix for training corpus: `1/3` `clean`, `1/3` `IRRELEVANT`, `1/3` `DIFFERENT`
+### 2.5 Refined five-category protocol (active for CARM training)
+- category C1: clean text + clean image
+- category C2: `DIFFERENT` text + clean image
+- category C3: `IRRELEVANT` text + clean image
+- category C4: clean text + irrelevant image
+- category C5: `IRRELEVANT` text + irrelevant image
+- target mix: equal category balance (`1/5` each)
+- implied caption-mode mix: `2/5` clean, `1/5` `DIFFERENT`, `2/5` `IRRELEVANT`
+- AI caption processing required for C2, C3, C5 (`3/5` of corpus)
 - family coverage: preserve balance across `existence`, `count`, `attribute_color`
-- accounting unit for balancing: `(family x text_mode)` cell
+- accounting unit for balancing and reporting: `(family x category)` cell
 
 ### 2.6 Dataset sizing policy (heuristic, now frozen for execution)
 - minimum viable run: `30,000` total examples (for pipeline/debug and coarse comparisons)
@@ -72,10 +79,10 @@ Optional extension: both-corrupted or ambiguous variants for abstention stress-t
 - stretch run: `150,000+` total examples (only if compute/time permit)
 
 Sizing rationale for the `90k` target:
-- `3` families x `3` text modes = `9` cells
-- `90,000 / 9 ~= 10,000` examples per cell
-- with `70/15/15` split: about `7,000` train / `1,500` val / `1,500` test per cell
-- worst-case binomial uncertainty at `n=1,500` is about `+/-2.5` percentage points (95% CI), which is sufficient for stable report-level comparisons
+- `3` families x `5` categories = `15` cells
+- `90,000 / 15 = 6,000` examples per cell
+- with `70/15/15` split: `4,200` train / `900` val / `900` test per cell
+- worst-case binomial uncertainty at `n=900` is about `+/-3.3` percentage points (95% CI), which is sufficient for stable report-level comparisons
 - if required effect size is below `2` points, increase dataset size beyond `90k` and rerun power checks
 
 ---
@@ -83,11 +90,11 @@ Sizing rationale for the `90k` target:
 ## 3) Labels and reliability supervision
 
 ### 3.1 Reference action labels (`a*`, deterministic, refined protocol)
-- text `IRRELEVANT`, vision clean -> `trust_vision`
-- text `DIFFERENT`, vision clean -> `require_agreement` (policy abstains on unimodal disagreement)
-- vision corrupted, text clean -> `trust_text`
-- none corrupted and consistent -> `require_agreement`
-- both corrupted or ambiguous -> `abstain`
+- C1 (clean text + clean image): `require_agreement` (answer only on agreement; abstain on disagreement)
+- C2 (`DIFFERENT` text + clean image): `require_agreement` (expected disagreement stress case)
+- C3 (`IRRELEVANT` text + clean image): `trust_vision`
+- C4 (clean text + irrelevant image): `trust_text`
+- C5 (`IRRELEVANT` text + irrelevant image): `abstain`
 
 Compatibility note:
 - legacy `text_edit` rows without subtype metadata are treated as `IRRELEVANT` only for backward compatibility and must not be mixed into final refined-run reporting without explicit flagging.
@@ -218,7 +225,9 @@ These defaults are active unless overridden in config/CLI:
 - first vision corruption type: `occlusion`
 - variants per base sample: `swap_easy`, `swap_hard`, `text_edit`, `vision_corrupt`
 - abstention output token/string: `<ABSTAIN>`
-- refined CARM training mix: `clean/IRRELEVANT/DIFFERENT = 1/3` each
+- refined category mix: `C1..C5 = 1/5` each
+- refined caption-mode mix: `clean=2/5`, `DIFFERENT=1/5`, `IRRELEVANT=2/5`
+- AI caption-processing coverage: C2, C3, C5 (`3/5` of corpus)
 - refined dataset target size: `90,000` total examples
 
 Execution profile note:
@@ -248,10 +257,10 @@ Still required to match final paper claim:
 
 ## 12) Immediate engineering priorities (next milestones)
 
-1) implement refined text-edit subtype metadata (`IRRELEVANT`, `DIFFERENT`) and deterministic oracle mapping in data construction
-2) generate a frozen refined-run dataset at `90,000` examples with balanced `(family x text_mode)` coverage and manifest checks
+1) implement refined category metadata (C1-C5), including text subtype (`IRRELEVANT`, `DIFFERENT`) and image-irrelevance swap flags, with deterministic oracle mapping
+2) generate a frozen refined-run dataset at `90,000` examples with balanced `(family x category)` coverage and manifest checks
 3) run preflight baselines/CARM on a `30,000` subset, then launch full `90,000` CARM + ablations
-4) evaluate and report by split (`test_id`, `test_ood_family`, `test_ood_severity`) and by `(family x text_mode)` cell
+4) evaluate and report by split (`test_id`, `test_ood_family`, `test_ood_severity`) and by `(family x category)` cell
 5) update WRITEUP tables/figures with refined-protocol metrics, including uncertainty notes for per-cell estimates
 6) continue Backbone-B replication path (LLaVA-NeXT runnable integration) after Backbone-A refined results are frozen
 

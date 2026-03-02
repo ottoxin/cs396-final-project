@@ -60,15 +60,37 @@ Optional extension: both-corrupted or ambiguous variants for abstention stress-t
 - ground-truth answer `y`
 - reference action `a*`
 
+### 2.5 Refined text-supervision protocol (active for CARM training)
+- text mode buckets: `clean`, `IRRELEVANT`, `DIFFERENT`
+- target mix for training corpus: `1/3` `clean`, `1/3` `IRRELEVANT`, `1/3` `DIFFERENT`
+- family coverage: preserve balance across `existence`, `count`, `attribute_color`
+- accounting unit for balancing: `(family x text_mode)` cell
+
+### 2.6 Dataset sizing policy (heuristic, now frozen for execution)
+- minimum viable run: `30,000` total examples (for pipeline/debug and coarse comparisons)
+- target run: `90,000` total examples (primary analysis target)
+- stretch run: `150,000+` total examples (only if compute/time permit)
+
+Sizing rationale for the `90k` target:
+- `3` families x `3` text modes = `9` cells
+- `90,000 / 9 ~= 10,000` examples per cell
+- with `70/15/15` split: about `7,000` train / `1,500` val / `1,500` test per cell
+- worst-case binomial uncertainty at `n=1,500` is about `+/-2.5` percentage points (95% CI), which is sufficient for stable report-level comparisons
+- if required effect size is below `2` points, increase dataset size beyond `90k` and rerun power checks
+
 ---
 
 ## 3) Labels and reliability supervision
 
-### 3.1 Reference action labels (`a*`, deterministic)
-- text corrupted, vision clean -> `trust_vision`
+### 3.1 Reference action labels (`a*`, deterministic, refined protocol)
+- text `IRRELEVANT`, vision clean -> `trust_vision`
+- text `DIFFERENT`, vision clean -> `require_agreement` (policy abstains on unimodal disagreement)
 - vision corrupted, text clean -> `trust_text`
 - none corrupted and consistent -> `require_agreement`
 - both corrupted or ambiguous -> `abstain`
+
+Compatibility note:
+- legacy `text_edit` rows without subtype metadata are treated as `IRRELEVANT` only for backward compatibility and must not be mixed into final refined-run reporting without explicit flagging.
 
 ### 3.2 Reliability targets
 Targets are question-conditioned and derived from construction metadata.
@@ -196,6 +218,8 @@ These defaults are active unless overridden in config/CLI:
 - first vision corruption type: `occlusion`
 - variants per base sample: `swap_easy`, `swap_hard`, `text_edit`, `vision_corrupt`
 - abstention output token/string: `<ABSTAIN>`
+- refined CARM training mix: `clean/IRRELEVANT/DIFFERENT = 1/3` each
+- refined dataset target size: `90,000` total examples
 
 Execution profile note:
 - Class-project profile `configs/class_medium.yaml` is an override profile for practical iteration (`max_per_family=5000`) with dedicated `*_class_medium` artifact paths; it does not change v1 protocol semantics.
@@ -224,12 +248,12 @@ Still required to match final paper claim:
 
 ## 12) Immediate engineering priorities (next milestones)
 
-1) run baselines on `data/generated/pilots/pilot_3k_class_medium.jsonl` and log in `REPORT.md`
-2) run final baselines on `data/generated/pilots/pilot_3k_class_medium_real_vision.jsonl` (config: `class_medium_final.yaml`) and log in `REPORT.md`
-3) run CARM training/evaluation ablations on class-medium final pilot and log outputs
-4) update WRITEUP tables/figures with class-medium ID/OOD metrics
-5) decide whether to rebuild default-path full suite or keep class-medium as primary class-project track
-6) integrate runnable LLaVA-NeXT adapter while preserving mock mode for tests
+1) implement refined text-edit subtype metadata (`IRRELEVANT`, `DIFFERENT`) and deterministic oracle mapping in data construction
+2) generate a frozen refined-run dataset at `90,000` examples with balanced `(family x text_mode)` coverage and manifest checks
+3) run preflight baselines/CARM on a `30,000` subset, then launch full `90,000` CARM + ablations
+4) evaluate and report by split (`test_id`, `test_ood_family`, `test_ood_severity`) and by `(family x text_mode)` cell
+5) update WRITEUP tables/figures with refined-protocol metrics, including uncertainty notes for per-cell estimates
+6) continue Backbone-B replication path (LLaVA-NeXT runnable integration) after Backbone-A refined results are frozen
 
 ---
 

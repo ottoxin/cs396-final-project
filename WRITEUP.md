@@ -105,17 +105,17 @@ The following raw-to-constructed examples illustrate the three active families a
 
 Family inference is performed directly from normalized question text. Questions beginning with `is` or `are` are mapped to `existence`; questions beginning with `how many` are mapped to `count`; and questions beginning with `what color` are mapped to `attribute_color`. Questions outside these patterns are excluded from v1.
 
-Answer normalization is family dependent. Existence answers are collapsed into canonical `yes` and `no` forms, including accepted aliases such as `y`, `n`, `true`, and `false`. Count answers are accepted when they are either digit strings or number words with deterministic integer conversion. Attribute-color answers are accepted only when the normalized token appears in the configured closed color vocabulary. Any record failing normalization is removed prior to caption filtering.
+Answer normalization is family-dependent. Existence answers are collapsed into canonical `yes` and `no` forms, including accepted aliases such as `y`, `n`, `true`, and `false`. Count answers are accepted when they are either digit strings or number words with deterministic integer conversion. Attribute-color answers are accepted only when the normalized token appears in the configured closed color vocabulary. Any record failing normalization is removed prior to caption filtering.
 
 ### A2. Caption Consistency Filtering
 
 For each candidate base record `(I, q, y)`, the pipeline scans all captions attached to image `I` and retains the first caption that satisfies `caption_supports_answer(q, family, y, caption)`. If no caption passes, the record is dropped with reason `consistency_filter_failed`. This first-pass retention rule is deterministic given fixed caption order from source files.
 
-Support checks are family specific. For `attribute_color`, the caption must contain the normalized color as a whole word match. For `count`, numeric evidence is extracted from both digits and recognized number words in the caption, and the normalized answer integer must appear in that set. For `existence`, subject-like tokens are extracted from the question after stopword filtering and compared against caption tokens; overlap is treated as support for `yes`, while non-overlap is treated as support for `no`. This design favors deterministic filtering over open-ended semantic inference.
+Support checks are family-specific. For `attribute_color`, the caption must contain the normalized color as a whole word match. For `count`, numeric evidence is extracted from both digits and recognized number words in the caption, and the normalized answer integer must appear in that set. For `existence`, subject-like tokens are extracted from the question after stopword filtering and compared against caption tokens; overlap is treated as support for `yes`, while non-overlap is treated as support for `no`. This design favors deterministic filtering over open-ended semantic inference.
 
 ### A3. Conflict Suite v1 Variant Generation
 
-Each retained clean base example is expanded into a fixed operator set: `clean`, `swap_easy`, `swap_hard`, `text_edit`, and `vision_corrupt` at severities `1,2,3`. The clean variant is normalized to canonical defaults, including `corrupt_modality=none` and `severity=0`.
+Each retained clean base example is expanded into a fixed operator set: `clean`, `swap_easy`, `swap_hard`, `text_edit`, and `vision_corrupt` at severities `1, 2, 3`. The clean variant is normalized to canonical defaults, including `corrupt_modality=none` and `severity=0`.
 
 The `swap_easy` variant replaces caption text with donor text sampled from another base example. The `swap_hard` variant attempts constrained donor selection requiring same family, same answer-type bucket, different source image, and noun-token Jaccard overlap within the configured range (default `[0.2, 0.7]`). If no donor satisfies all constraints, the system falls back to easy donor text while keeping operator `SWAP_HARD` and setting `hard_swap_flag=false`.
 

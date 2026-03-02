@@ -14,6 +14,18 @@ Split assignment is performed at source-image level to prevent leakage across va
 
 In the current official-data build with consistency filtering enabled, the base-construction stage processed 658,111 candidate VQAv2 question-answer records and retained 184,590 clean base examples (28.0%), while filtering out 473,521 records (72.0%). The filtered set consists of 308,623 records removed by family gating, 22,060 removed by answer-normalization failure, and 142,838 removed by caption-consistency failure. The retained family composition is 150,582 existence examples, 15,207 count examples, and 18,801 attribute-color examples.
 
+### CARM Supervision Refinement
+
+The project objective is to train the CARM module to select among four entropy-conditioned actions: high-entropy vision and high-entropy text (`ABSTAIN`), low-entropy vision and high-entropy text (`TRUST_VISION`), high-entropy vision and low-entropy text (`TRUST_TEXT`), and low-entropy vision and low-entropy text (require agreement and return an answer only when both modalities agree; otherwise abstain).
+
+Under the current text-perturbation strategy, captions are often modified so that they imply a different answer while remaining equally plausible as evidence for the question. Assigning these cases to `TRUST_VISION` can create a misleading training signal, because both modalities may appear low entropy yet disagree semantically.
+
+To provide finer-grained supervision, we propose two text-edit categories. `IRRELEVANT` edits remove or alter answer-bearing caption content so that text no longer supports answering the question; these cases should map to `TRUST_VISION`. `DIFFERENT` edits preserve answerability but change the implied answer (for example, replacing color or count tokens); these cases should follow the same oracle policy as clean low-entropy/low-entropy examples, namely agreement checking with abstention on disagreement.
+
+A practical data-construction recipe is a balanced three-way mix: one-third `clean`, one-third `IRRELEVANT`, and one-third `DIFFERENT`, generated in API batches (for example, with GPT-5-nano). In this setup, `clean` and `DIFFERENT` share the same oracle policy, while `IRRELEVANT` maps to `TRUST_VISION`. The current working estimate for text disruption cost is approximately $0.075 per 1,000 samples under this 1/3-1/3-1/3 split.
+
+Image perturbation remains an open labeling problem. Blur or occlusion does not guarantee that visual evidence becomes unanswerable, so oracle actions are not always known a priori. One option is to use a vision-capable model to determine whether the perturbed image still answers the question and then assign oracle labels accordingly. Another option is COCO mask-guided occlusion: extract question-relevant objects, apply targeted versus non-targeted occlusions, and retain cases where answerability is controlled by construction. This approach is likely most useful for counting and less direct for attribute-color questions.
+
 The following raw-to-constructed examples illustrate the three active families and show how source annotations map into clean base records.
 
 ```json

@@ -83,7 +83,6 @@ cs396-final-project/
 │   └── cache/    # HF-first local materialization (gitignored)
 ├── outputs/      # run outputs (gitignored)
 └── archive/
-    └── local_data_<timestamp>/    # local-only archived raw/interim/generated/hf_release data
 ```
 
 ## Config Defaults

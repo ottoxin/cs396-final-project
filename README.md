@@ -1,12 +1,14 @@
 # CARM: Conflict-Aware Reasoning Module
 
-This repository is in Phase A rebuild mode and follows [PLAN.md](PLAN.md).
+This repository now uses a Hugging Face first workflow.
 
-## Governance Files
+Canonical dataset source:
+- `nbso/carm-vqa-5way`
+- current realized release size: `44,982` rows (single HF split before local deterministic split export)
 
-- [PLAN.md](PLAN.md): source of truth for protocol decisions.
-- [WRITEUP.md](WRITEUP.md): scientific narrative of implementation progress and results.
-- `REPORT.md`, `AGENT.md`, and `LOG.md`: optional local notes, intentionally gitignored.
+Important count clarification:
+- `150,582 / 15,207 / 18,801` in `WRITEUP.md` are upstream retained clean-base counts from official VQAv2+COCO filtering.
+- `44,982` is the currently published HF refined-run corpus used for current baseline workflows.
 
 ## Setup
 
@@ -14,272 +16,119 @@ This repository is in Phase A rebuild mode and follows [PLAN.md](PLAN.md).
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-# Required only if you want to pull the prebuilt HF release:
-pip install huggingface_hub
+pip install datasets huggingface_hub
 ```
 
-## Repository Layout
+## HF-First Workflow
 
-- `carm/data/`: dataset schema, VQAv2+COCO ingestion, conflict construction, integrity checks, sampling.
-- `carm/eval/`: baselines, evaluator, and metric computations.
-- `carm/models/`: mock backbone, adapter interfaces, registry, and CARM model modules.
-- `carm/train/`: training dataset/loss/trainer scaffolding.
-- `configs/`: protocol defaults and runtime profiles (`default`, `cpu_local`, `cloud_gpu`, `class_medium`, `class_medium_final`, ablations).
-- `scripts/`: runnable CLIs for download/build/generate/sample/check/evaluate/validate-docs.
-- `tests/`: unit and smoke tests for data pipeline, integrity, and evaluation contracts.
-- `data/`: local datasets and generated artifacts (`raw/`, `interim/`, `generated/`, `clean/`).
-- `artifacts/`: baseline outputs and run artifacts.
-- `PLAN.md`: protocol source of truth.
-- `REPORT.md`: local run ledger (gitignored in this repo).
-
-## Fast Path: Pull Prebuilt Class-Medium Data
-
-If you want to skip rebuild from raw VQAv2/COCO, pull the released artifact snapshot and install it directly into this repo's `data/generated/...` layout:
+### 1) Prepare baseline-ready local outputs from HF dataset
 
 ```bash
-python3 scripts/download_datasets.py \
-  --source release \
-  --hf-revision main
-```
-
-Default release repo: `haohxin/cs396-final` (override with `--hf-repo-id` if needed).
-
-For full baseline inference across all 21,000 pilot rows, also fetch official COCO train/val images in the same command:
-
-```bash
-python3 scripts/download_datasets.py \
-  --source release \
+python3 scripts/prepare_hf_5way_dataset.py \
+  --hf-repo-id nbso/carm-vqa-5way \
   --hf-revision main \
-  --with-official-images \
-  --root data/raw
+  --cache-root data/cache/hf_5way
 ```
 
-What this installs:
-- `data/generated/pilots/pilot_3k_class_medium_real_vision.jsonl`
-- `data/generated/pilots/pilot_3k_class_medium_real_vision.manifest.json`
-- `data/generated/vision_corrupt/class_medium/pilot_3k/` (unless `--skip-release-images`)
-- supporting manifests under `data/generated/` and `data/interim/`
+This writes:
+- `data/cache/hf_5way/prepared/carm_vqa_5way.jsonl`
+- `data/cache/hf_5way/prepared/carm_vqa_5way.manifest.json`
+- `data/cache/hf_5way/images/*.jpg`
 
-Important source-data note:
-- HF release snapshot does **not** redistribute original VQAv2/COCO annotation archives.
-- Pilot `clean/swap_easy/swap_hard/text_edit` rows reference original COCO images under `data/raw/coco/...`.
-- Use `--with-official-images` (above) or run `--source official` to download originals locally.
-
-Dataset card (tracked in this repo):
-- `DATASET_CARD.md`
-
-Release snapshot also includes a copy at:
-- `data/hf_release/cs396-final-dataset/README.md` (local cache after `--source release`)
-
-## Phase A Runtime Workflow (Rebuild From Raw Data)
-
-### 1) Download official VQAv2/COCO artifacts
-
-Default includes annotations, captions, and images.
-
-```bash
-python3 scripts/download_datasets.py \
-  --source official \
-  --root data/raw
-```
-
-### 2) Build clean base dataset from VQAv2+COCO
-
-```bash
-python3 scripts/build_base_dataset.py \
-  --config configs/cpu_local.yaml \
-  --output_jsonl data/interim/base_examples.jsonl
-```
-
-### 3) Generate full canonical Conflict Suite v1
-
-```bash
-python3 scripts/generate_conflict_suite.py \
-  --config configs/cpu_local.yaml \
-  --input_jsonl data/interim/base_examples.jsonl \
-  --output_jsonl data/generated/conflict_suite_full.jsonl \
-  --manifest_json data/generated/conflict_suite_full.manifest.json
-```
-
-### 4) Sample deterministic pilot subset
-
-```bash
-python3 scripts/sample_pilot_subset.py \
-  --config configs/cpu_local.yaml \
-  --input_jsonl data/generated/conflict_suite_full.jsonl \
-  --output_jsonl data/generated/pilots/pilot_3k_base.jsonl \
-  --manifest_json data/generated/pilots/pilot_3k_base.manifest.json
-```
-
-### 5) Validate split/integrity contract
-
-```bash
-python3 scripts/check_data_integrity.py \
-  --config configs/cpu_local.yaml \
-  --input_jsonl data/generated/pilots/pilot_3k_base.jsonl
-```
-
-### 6) Run Phase A baselines
+### 2) Run baselines (Qwen)
 
 ```bash
 python3 scripts/run_baselines.py \
-  --config configs/cpu_local.yaml \
-  --input_jsonl data/generated/pilots/pilot_3k_base.jsonl \
-  --output_dir artifacts/baselines/pilot_3k \
-  --resume \
-  --progress-every 500
-```
-
-Notes:
-- Per-run logs are written to `<output_dir>/run.log` (or override with `--log-file`).
-- `--resume` supports interruption recovery:
-  - skips baseline folders that already contain `metrics.json`,
-  - resumes per-example prediction files when possible.
-
-## Class-Medium Workflow (CS396 Scale)
-
-This profile keeps the same protocol but caps base construction to `max_per_family=5000` for faster class-project iteration.
-
-```bash
-python3 scripts/build_base_dataset.py \
-  --config configs/class_medium.yaml
-
-python3 scripts/generate_conflict_suite.py \
-  --config configs/class_medium.yaml \
-  --input_jsonl data/interim/base_examples_class_medium.jsonl \
-  --output_jsonl data/generated/conflict_suite_class_medium.jsonl \
-  --manifest_json data/generated/conflict_suite_class_medium.manifest.json
-
-python3 scripts/sample_pilot_subset.py \
-  --config configs/class_medium.yaml \
-  --input_jsonl data/generated/conflict_suite_class_medium.jsonl \
-  --output_jsonl data/generated/pilots/pilot_3k_class_medium.jsonl \
-  --manifest_json data/generated/pilots/pilot_3k_class_medium.manifest.json
-
-python3 scripts/check_data_integrity.py \
-  --config configs/class_medium.yaml \
-  --input_jsonl data/generated/pilots/pilot_3k_class_medium.jsonl
-```
-
-### Optional: Materialize Real Pixel-Level Vision Corruption on Pilot
-
-This step rewrites pilot vision-corrupt rows to point at deterministic occluded images and emits a reproducibility manifest with input/output hashes.
-
-```bash
-python3 scripts/materialize_vision_corrupt.py \
-  --input_jsonl data/generated/pilots/pilot_3k_class_medium.jsonl \
-  --output_jsonl data/generated/pilots/pilot_3k_class_medium_real_vision.jsonl \
-  --output_image_dir data/generated/vision_corrupt/class_medium/pilot_3k \
-  --manifest_json data/generated/pilots/pilot_3k_class_medium_real_vision.manifest.json \
-  --jpeg_quality 90 \
-  --download_missing_coco \
-  --fingerprint_images
-```
-
-Current materialized pilot artifact snapshot (2026-02-28):
-- `data/generated/pilots/pilot_3k_class_medium_real_vision.jsonl`: `21,000`
-- `data/generated/vision_corrupt/class_medium/pilot_3k/`: `9,000` images
-- `data/generated/pilots/pilot_3k_class_medium_real_vision.manifest.json`: deterministic hashes + image-dir fingerprint
-
-Current class-medium artifact counts (2026-02-28):
-- `data/interim/base_examples_class_medium.jsonl`: `15,000`
-- `data/generated/conflict_suite_class_medium.jsonl`: `105,000`
-- `data/generated/pilots/pilot_3k_class_medium.jsonl`: `21,000`
-
-### Qwen2.5-VL Baseline Run (GPU)
-
-Use this profile to run baselines with the runnable Qwen adapter:
-
-```bash
-pip install -e .
-```
-
-```bash
-python3 scripts/run_baselines.py \
-  --config configs/class_medium_final_qwen.yaml \
-  --input_jsonl data/generated/pilots/pilot_3k_class_medium_real_vision.jsonl \
-  --output_dir artifacts/baselines/class_medium_final_qwen \
+  --config configs/hf_5way_qwen.yaml \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
+  --output_dir outputs/baselines/hf_5way_qwen \
   --split all \
   --resume \
   --progress-every 500
 ```
 
-The first run downloads Qwen weights from Hugging Face.
+## Repository Layout
 
-## Output Layout
+- `carm/data/`: schema, transforms, integrity, and HF 5-way helpers.
+- `carm/eval/`: baselines, evaluator, and metric computation.
+- `carm/models/`: runnable Qwen adapter and model registry.
+- `carm/train/`: CARM head training utilities.
+- `scripts/`: dataset prep, baseline runs, train/eval CLIs.
+- `configs/`: runtime profiles (`default`, `hf_5way_qwen`, legacy configs).
+- `tests/`: unit and integration tests.
 
-- `data/raw/...`: downloaded official artifacts.
-- `data/interim/base_examples.jsonl`: filtered clean base examples.
-- `data/generated/conflict_suite_full.jsonl`: canonical full suite.
-- `data/generated/conflict_suite_full.manifest.json`: full-suite manifest and distributions.
-- `data/generated/pilots/*.jsonl`: derived pilot datasets.
-- `artifacts/baselines/<run_id>/`: per-baseline predictions and metrics.
+Tree view:
 
-## Baselines in Phase A
-
-- `backbone_direct`
-- `prompt_verification`
-- `uncertainty_threshold_abstain`
-- `two_pass_self_consistency`
-- `probe_only_heuristic`
-
-## Mock-First Note
-
-Phase A remains mock-first for protocol validation and reproducibility checks.
-Qwen2.5-VL baseline inference is now runnable via `configs/class_medium_final_qwen.yaml`.
-LLaVA-NeXT remains a stub adapter for the next implementation wave.
-
-## Documentation Discipline
-
-1. After each run with artifacts, append one row in `REPORT.md` Run Ledger.
-2. After each meaningful implementation milestone, update `WRITEUP.md` with a short scientific narrative of what changed and why.
-3. If a change affects protocol/scope, update `PLAN.md` in the same commit and reference the corresponding run context from `REPORT.md`.
-4. Keep `REPORT.md`, `AGENT.md`, and `LOG.md` as local working notes only (not committed).
-
-## Docs Contract Validation
-
-```bash
-python3 scripts/validate_docs_contract.py
-python3 scripts/validate_docs_contract.py --smoke
+```text
+cs396-final-project/
+├── carm/
+│   ├── data/
+│   ├── eval/
+│   ├── models/
+│   ├── train/
+│   └── utils/
+├── configs/
+│   ├── default.yaml
+│   ├── hf_5way_qwen.yaml
+│   └── ...
+├── scripts/
+│   ├── prepare_hf_5way_dataset.py
+│   ├── run_baselines.py
+│   ├── train_carm.py
+│   ├── evaluate_carm.py
+│   └── ...
+├── tests/
+├── data/
+│   ├── clean/
+│   └── cache/    # HF-first local materialization (gitignored)
+├── outputs/      # run outputs (gitignored)
+└── archive/
+    └── local_data_<timestamp>/    # local-only archived raw/interim/generated/hf_release data
 ```
 
-The validator supports local-only docs. It validates `REPORT.md` and/or `LOG.md` when present.
+## Config Defaults
 
-## Common Failure Modes
+`configs/default.yaml` now points to:
+- HF repo: `nbso/carm-vqa-5way`
+- cache root: `data/cache/hf_5way`
+- default backbone: `qwen2_5_vl_7b`
 
-- Missing official JSON paths in `configs/default.yaml` `data.paths`.
-- Empty base dataset because consistency filters are too strict for local subset.
-- Running with `default.yaml` paths after class-medium generation and reading stale smoke-size files from `data/generated/conflict_suite_full.jsonl`.
-- No examples in a selected split/filter for baseline execution.
-- OOD-family/OOD-severity misconfiguration causing integrity validation failures.
+## Output and Storage Paths
 
-## Recent Engineering Patch
+- `outputs/` is the run-output root (metrics JSON, per-example predictions, checkpoints, logs). It is empty until you run train/eval/baselines.
+- Baseline output example: `outputs/baselines/hf_5way_qwen/`.
+- Train/eval scripts write wherever you pass `--output_dir`.
+- HF dataset/materialized images are written under `--cache-root` by `scripts/prepare_hf_5way_dataset.py`.
+- Default cache/download location is `data/cache/hf_5way/`, including:
+- `data/cache/hf_5way/prepared/carm_vqa_5way.jsonl`
+- `data/cache/hf_5way/prepared/carm_vqa_5way.manifest.json`
+- `data/cache/hf_5way/images/`
+- Hugging Face `datasets` may also keep its own cache under `~/.cache/huggingface/` unless you set `HF_HOME`/`HF_DATASETS_CACHE`.
+- `data/cache/` is the active HF-first local materialization area and should stay gitignored.
 
-`carm/data/construction.py` hard-swap donor search was optimized by:
-- pre-indexing donors by `(family, answer_type)`
-- caching noun-like tokenization used in Jaccard checks
+## Optional Legacy Paths (Deprecated)
 
-This preserves generation behavior and significantly reduces runtime for medium/full suite construction.
+The old local-build pipeline from raw VQAv2/COCO artifacts is archived and no longer part of the active workflow.
 
-## Reproducibility Checklist
+For the canonical 5-way dataset workflow, use `scripts/prepare_hf_5way_dataset.py`.
 
-- Fix and log seed (`configs/*.yaml`).
-- Save and track dataset manifests.
-- Save resolved config with each run.
-- Log every run in `REPORT.md` and summarize major milestones in `WRITEUP.md`.
+Legacy scripts no longer in active use have been moved to:
+- `archive/legacy_scripts_<timestamp>/`
+- `archive/raw_coco_vqav2_data_manipulation_20260304/`
+- `archive/docs_governance_20260304/`
 
-## Optional HF Release
+## Testing
 
-For dataset release, publish these together to keep it reproducible:
-- input manifest and generation manifests
-- final JSONL (`pilot_3k_class_medium_real_vision.jsonl`)
-- materialized image directory (`data/generated/vision_corrupt/class_medium/pilot_3k`)
-- materialization manifest (`pilot_3k_class_medium_real_vision.manifest.json`)
-
-Current dataset repo target: `haohxin/cs396-final`.
-
-Example upload command:
+Default test run (lightweight, no forced real-model inference):
 
 ```bash
-hf upload haohxin/cs396-final . --repo-type=dataset
+pytest -q
 ```
+
+Opt-in real Qwen inference test:
+
+```bash
+RUN_QWEN_INFERENCE_TESTS=1 pytest tests/test_qwen_inference_optin.py
+```
+
+Real-model runs remain required for reported baseline results; the opt-in test is a pre-release validation gate.

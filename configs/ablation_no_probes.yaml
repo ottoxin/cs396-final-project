@@ -1,3 +1,0 @@
-extends: class_medium
-model:
-  probe_feature_size: 0

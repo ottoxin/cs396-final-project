@@ -1,9 +1,0 @@
-extends: default
-
-runtime:
-  device: cpu
-  notes: CPU-only local development profile
-
-training:
-  batch_size: 2
-  epochs: 1

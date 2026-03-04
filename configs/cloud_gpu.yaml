@@ -1,9 +1,0 @@
-extends: default
-
-runtime:
-  device: cuda
-  notes: Cloud GPU profile for larger runs
-
-training:
-  batch_size: 8
-  epochs: 3

@@ -49,40 +49,38 @@ python3 scripts/run_baselines.py \
 
 ## Repository Layout
 
-- `carm/data/`: schema, transforms, integrity, and HF 5-way helpers.
-- `carm/eval/`: baselines, evaluator, and metric computation.
-- `carm/models/`: runnable Qwen adapter and model registry.
-- `carm/train/`: CARM head training utilities.
-- `scripts/`: dataset prep, baseline runs, train/eval CLIs.
-- `configs/`: runtime profiles (`default`, `hf_5way_qwen`, legacy configs).
-- `tests/`: unit and integration tests.
+- `carm/`: package code used by all runtime CLIs (data, models, train, eval, utils).
+- `scripts/`: command-line entrypoints (prepare dataset, run baselines, train, evaluate).
+- `configs/`: active runtime configs (`default.yaml`, `hf_5way_qwen.yaml`).
+- `tests/`: automated validation (`pytest`) for schema, mapping, policy, and integration.
+- `data/`: local sample + cache root for prepared HF artifacts.
+- `outputs/`: run outputs (metrics, per-example predictions, checkpoints/logs).
+- `archive/`: local-only archived legacy scripts/configs/data.
 
 Tree view:
 
 ```text
 cs396-final-project/
-├── carm/
-│   ├── data/
-│   ├── eval/
-│   ├── models/
-│   ├── train/
-│   └── utils/
-├── configs/
+├── carm/         # core library package
+│   ├── data/     # schema + prep helpers
+│   ├── eval/     # baselines + metrics + evaluator
+│   ├── models/   # backbone adapters + CARM heads + policy
+│   ├── train/    # dataset/loss/trainer
+│   └── utils/    # config + seed helpers
+├── configs/      # active runtime configs
 │   ├── default.yaml
-│   ├── hf_5way_qwen.yaml
-│   └── ...
-├── scripts/
+│   └── hf_5way_qwen.yaml
+├── scripts/      # runnable CLIs
 │   ├── prepare_hf_5way_dataset.py
 │   ├── run_baselines.py
 │   ├── train_carm.py
-│   ├── evaluate_carm.py
-│   └── ...
-├── tests/
+│   └── evaluate_carm.py
+├── tests/        # pytest suite (kept separate from runtime scripts)
 ├── data/
-│   ├── clean/
+│   ├── sample/   # tiny local sample data
 │   └── cache/    # HF-first local materialization (gitignored)
 ├── outputs/      # run outputs (gitignored)
-└── archive/
+└── archive/      # local-only legacy materials (gitignored)
 ```
 
 ## Config Defaults
@@ -115,6 +113,7 @@ Legacy scripts no longer in active use have been moved to:
 - `archive/legacy_scripts_<timestamp>/`
 - `archive/raw_coco_vqav2_data_manipulation_20260304/`
 - `archive/docs_governance_20260304/`
+- `archive/configs_legacy_20260304/`
 
 ## Testing
 

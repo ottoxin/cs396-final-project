@@ -1,3 +1,0 @@
-extends: class_medium
-training:
-  lambda_cf: 0.0

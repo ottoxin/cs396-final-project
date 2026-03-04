@@ -1,1 +1,1 @@
-"""Dataset schema, ingestion, construction, integrity, and sampling utilities."""
+"""Dataset schema, HF 5-way prep helpers, integrity, and sampling utilities."""

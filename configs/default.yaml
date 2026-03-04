@@ -1,8 +1,15 @@
 seed: 7
 
 data:
-  source: official_json
+  source: hf_carm_vqa_5way
   paths:
+    hf_repo_id: nbso/carm-vqa-5way
+    hf_revision: main
+    cache_root: data/cache/hf_5way
+    prepared_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way.jsonl
+    prepared_manifest_json: data/cache/hf_5way/prepared/carm_vqa_5way.manifest.json
+    prepared_image_dir: data/cache/hf_5way/images
+    # Legacy official-source paths retained for deprecated rebuild workflow compatibility.
     vqa_questions_train: data/raw/vqa/v2_OpenEnded_mscoco_train2014_questions.json
     vqa_questions_val: data/raw/vqa/v2_OpenEnded_mscoco_val2014_questions.json
     vqa_annotations_train: data/raw/vqa/v2_mscoco_train2014_annotations.json
@@ -14,7 +21,7 @@ data:
     base_examples_jsonl: data/interim/base_examples.jsonl
     conflict_suite_full_jsonl: data/generated/conflict_suite_full.jsonl
     conflict_suite_full_manifest_json: data/generated/conflict_suite_full.manifest.json
-    pilot_output_jsonl: data/generated/pilots/pilot_3k_base.jsonl
+    pilot_output_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way.jsonl
   families:
     - existence
     - count
@@ -75,7 +82,11 @@ model:
   pool: mean
 
 backbone:
-  name: mock_frozen_backbone
+  name: qwen2_5_vl_7b
+  model_name: Qwen/Qwen2.5-VL-7B-Instruct
+  device: auto
+  torch_dtype: auto
+  cache_results: true
   hidden_size: 128
   seq_len: 32
   registry:
@@ -109,4 +120,4 @@ eval:
 
 runtime:
   device: cpu
-  notes: Phase A mock-first configuration
+  notes: HF-first default configuration with Qwen2.5-VL backbone

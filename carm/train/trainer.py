@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from carm.data.io import save_examples
 from carm.data.schema import ConflictExample, CorruptModality
-from carm.models.backbone import MockFrozenBackbone
+from carm.models.interfaces import BackboneAdapter
 from carm.models.carm_model import CARMHeads
 from carm.train.dataset import ConflictDataset, build_clean_index, pair_key
 from carm.train.losses import (
@@ -34,7 +34,7 @@ class CARMTrainer:
     def __init__(
         self,
         model: CARMHeads,
-        backbone: MockFrozenBackbone,
+        backbone: BackboneAdapter,
         config: TrainerConfig | None = None,
     ) -> None:
         self.model = model

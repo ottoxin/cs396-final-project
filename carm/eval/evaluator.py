@@ -12,7 +12,7 @@ from carm.data.labeling import derive_reliability_target
 from carm.data.schema import ConflictExample, CorruptModality, Family
 from carm.eval.baselines import BaseBaseline
 from carm.eval.metrics import summarize_metrics
-from carm.models.backbone import MockFrozenBackbone
+from carm.models.interfaces import BackboneAdapter
 from carm.models.carm_model import CARMHeads, select_action
 from carm.models.policy import apply_action_and_generate, normalize_answer
 
@@ -20,7 +20,7 @@ from carm.models.policy import apply_action_and_generate, normalize_answer
 class CARMPredictor:
     name = "carm"
 
-    def __init__(self, model: CARMHeads, backbone: MockFrozenBackbone, device: str = "cpu") -> None:
+    def __init__(self, model: CARMHeads, backbone: BackboneAdapter, device: str = "cpu") -> None:
         self.model = model.to(torch.device(device))
         self.backbone = backbone
         self.device = torch.device(device)

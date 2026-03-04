@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from carm.models.backbone import MockFrozenBackbone, Qwen25VLAdapter
+from carm.models.backbone import Qwen25VLAdapter
 from carm.models.registry import create_backbone
 
 
 class TestBackboneRegistry(unittest.TestCase):
-    def test_create_mock_backbone_default(self) -> None:
+    def test_create_qwen_backbone_default(self) -> None:
         backbone = create_backbone({})
-        self.assertIsInstance(backbone, MockFrozenBackbone)
+        self.assertIsInstance(backbone, Qwen25VLAdapter)
 
     def test_create_qwen_backbone_uses_registry_model_name(self) -> None:
         cfg = {

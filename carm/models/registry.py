@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from carm.models.backbone import BackboneConfig, LlavaNextAdapter, MockFrozenBackbone, Qwen25VLAdapter
+from carm.models.backbone import BackboneConfig, LlavaNextAdapter, Qwen25VLAdapter
 
 
 def _resolve_model_name(backbone_cfg: dict[str, Any], key: str, default_name: str) -> str:
@@ -20,15 +20,12 @@ def _resolve_model_name(backbone_cfg: dict[str, Any], key: str, default_name: st
 
 
 def create_backbone(backbone_cfg: dict[str, Any]):
-    name = str(backbone_cfg.get("name", "mock_frozen_backbone"))
+    name = str(backbone_cfg.get("name", "qwen2_5_vl_7b"))
 
     config = BackboneConfig(
         hidden_size=int(backbone_cfg.get("hidden_size", 128)),
         seq_len=int(backbone_cfg.get("seq_len", 32)),
     )
-
-    if name == "mock_frozen_backbone":
-        return MockFrozenBackbone(config)
 
     if name == "qwen2_5_vl_7b":
         return Qwen25VLAdapter(

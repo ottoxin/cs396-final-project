@@ -9,8 +9,8 @@ import torch
 from carm.data.io import load_examples
 from carm.data.schema import Split
 from carm.eval.evaluator import CARMPredictor, evaluate_predictor
-from carm.models.backbone import BackboneConfig, MockFrozenBackbone
 from carm.models.carm_model import CARMHeads, CARMModelConfig
+from carm.models.registry import create_backbone
 from carm.utils.config import load_yaml_config
 
 
@@ -54,12 +54,9 @@ def main() -> None:
         state = ckpt.get("model_state_dict", {})
         model.load_state_dict(state, strict=False)
 
-    backbone = MockFrozenBackbone(
-        BackboneConfig(
-            hidden_size=int(backbone_cfg.get("hidden_size", 128)),
-            seq_len=int(backbone_cfg.get("seq_len", 32)),
-        )
-    )
+    backbone = create_backbone(backbone_cfg)
+    if getattr(backbone, "name", "") == "llava_next_8b":
+        raise RuntimeError("llava_next_8b is not runnable yet for evaluation. Use qwen2_5_vl_7b.")
 
     predictor = CARMPredictor(model=model, backbone=backbone, device=str(train_cfg.get("device", "cpu")))
     metrics = evaluate_predictor(predictor, examples, output_dir=args.output_dir)

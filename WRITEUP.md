@@ -12,7 +12,7 @@ From each retained base example, we generate Conflict Suite v1 variants with det
 
 Split assignment is performed at source-image level to prevent leakage across variants derived from the same image. Base splits are assigned with deterministic seeded shuffling and default 70/15/15 source ratios for train/val/test-ID, then overwritten by protocol-level OOD rules for held-out family and held-out severity. The generated manifest records counts, hashes, configuration values, and integrity checks to support exact regeneration (Appendix A5).
 
-In the current official-data build with consistency filtering enabled, the base-construction stage processed 658,111 candidate VQAv2 question-answer records and retained 184,590 clean base examples (28.0%), while filtering out 473,521 records (72.0%). The filtered set consists of 308,623 records removed by family gating, 22,060 removed by answer-normalization failure, and 142,838 removed by caption-consistency failure. The retained family composition is 150,582 existence examples, 15,207 count examples, and 18,801 attribute-color examples.
+In the current official-data build with consistency filtering enabled, the base-construction stage processed 658,111 candidate VQAv2 question-answer records and retained 184,590 clean base examples (28.0%), while filtering out 473,521 records (72.0%). The filtered set consists of 308,623 records removed by family gating, 22,060 removed by answer-normalization failure, and 142,838 removed by caption-consistency failure. The retained family composition is 150,582 existence examples, 15,207 count examples, and 18,801 attribute-color examples. These counts refer to an upstream clean-base filtering stage and must not be conflated with the current released refined corpus size.
 
 ### CARM Supervision Refinement (Five-Category Protocol)
 
@@ -28,9 +28,22 @@ To provide deterministic supervision for these actions, we use five data categor
 | C4 | clean | irrelevant | `TRUST_TEXT` | trust text answer | no |
 | C5 | `IRRELEVANT` | irrelevant | `ABSTAIN` | abstain (neither modality provides reliable evidence) | yes |
 
-For the refined run, the target dataset is `90,000` examples with equal category balance (`18,000` per category). With three families (`existence`, `count`, `attribute_color`), this yields `6,000` examples per `(family x category)` cell. Under the default `70/15/15` split, each cell has approximately `4,200` train, `900` validation, and `900` test examples.
+For the refined batch run, the nominal target dataset is `45,000` examples with equal category balance. The currently published HF release used by the active workflow is `44,982` rows (`nbso/carm-vqa-5way`), reflecting realized post-filtering/post-moderation outcomes.
 
-Caption-edit workload follows directly from category definitions. LLM caption perturbation is required for C2, C3, and C5 (`3/5` of the dataset). At `90,000` total examples, this corresponds to `54,000` caption edits, with `DIFFERENT:IRRELEVANT = 1:2` (`18,000` vs `36,000`). Image-side irrelevance for C4/C5 is produced by deterministic image swapping rather than blur/occlusion severity edits.
+| Family | C1 | C2 | C3 | C4 | C5 | Family total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `existence` | 3,000 | 3,000 | 3,000 | 3,000 | 3,000 | 15,000 |
+| `count` | 3,000 | 3,000 | 3,000 | 3,000 | 3,000 | 15,000 |
+| `attribute_color` | 3,000 | 3,000 | 3,000 | 3,000 | 3,000 | 15,000 |
+| Category total | 9,000 | 9,000 | 9,000 | 9,000 | 9,000 | 45,000 |
+
+| Allocation unit | Train (70%) | Val (15%) | Test (15%) | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Per `(family x category)` cell | 2,100 | 450 | 450 | 3,000 |
+| Per category (3 families) | 6,300 | 1,350 | 1,350 | 9,000 |
+| Full dataset (15 cells) | 31,500 | 6,750 | 6,750 | 45,000 |
+
+Caption-edit workload follows directly from category definitions. LLM caption perturbation is required for C2, C3, and C5 (`3/5` of the dataset). At `45,000` total examples, this corresponds to `27,000` caption edits, with `DIFFERENT:IRRELEVANT = 1:2` (`9,000` vs `18,000`). Image-side irrelevance for C4/C5 is produced by deterministic image swapping rather than blur/occlusion severity edits.
 
 The following raw-to-constructed examples illustrate the three active families and show how source annotations map into clean base records.
 

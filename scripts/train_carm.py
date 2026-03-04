@@ -9,8 +9,8 @@ import torch
 
 from carm.data.io import load_examples
 from carm.data.schema import Split
-from carm.models.backbone import BackboneConfig, MockFrozenBackbone
 from carm.models.carm_model import CARMHeads, CARMModelConfig
+from carm.models.registry import create_backbone
 from carm.train.trainer import CARMTrainer, TrainerConfig
 from carm.utils.config import load_yaml_config
 from carm.utils.seed import set_global_seed
@@ -43,12 +43,9 @@ def main() -> None:
             pool=str(model_cfg.get("pool", "mean")),
         )
     )
-    backbone = MockFrozenBackbone(
-        BackboneConfig(
-            hidden_size=int(backbone_cfg.get("hidden_size", 128)),
-            seq_len=int(backbone_cfg.get("seq_len", 32)),
-        )
-    )
+    backbone = create_backbone(backbone_cfg)
+    if getattr(backbone, "name", "") == "llava_next_8b":
+        raise RuntimeError("llava_next_8b is not runnable yet for training. Use qwen2_5_vl_7b.")
 
     trainer = CARMTrainer(
         model=model,

@@ -11,7 +11,7 @@ from carm.data.sampling import sample_pilot_by_base
 from carm.data.schema import Family
 from carm.eval.baselines import BackboneDirectBaseline, TwoPassSelfConsistencyBaseline
 from carm.eval.evaluator import evaluate_predictor
-from carm.models.backbone import MockFrozenBackbone
+from tests.dummy_backbone import DeterministicTestBackbone
 from tests.fixtures import make_base_examples
 
 
@@ -40,7 +40,7 @@ class TestIntegrationPhaseASmoke(unittest.TestCase):
             self.assertIn("selected_base_count", pilot_manifest)
             self.assertGreater(len(sampled), 0)
 
-            backbone = MockFrozenBackbone()
+            backbone = DeterministicTestBackbone()
             eval_out = root / "eval"
 
             direct_metrics = evaluate_predictor(BackboneDirectBaseline(backbone), sampled, output_dir=eval_out / "direct")

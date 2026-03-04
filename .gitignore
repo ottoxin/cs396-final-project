@@ -7,8 +7,11 @@ __pycache__/
 .ruff_cache/
 .DS_Store
 artifacts/
+outputs/
+data/cache/
 data/generated/
 data/hf_release/
+archive/
 logs/
 AGENT.md
 LOG.md

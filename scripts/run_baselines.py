@@ -27,7 +27,7 @@ from carm.utils.config import load_yaml_config
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Phase A baseline evaluators.")
+    parser = argparse.ArgumentParser(description="Run baseline evaluators.")
     parser.add_argument("--config", required=True)
     parser.add_argument("--input_jsonl", required=True)
     parser.add_argument("--output_dir", required=True)

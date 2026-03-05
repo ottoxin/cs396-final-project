@@ -8,10 +8,51 @@ import numpy as np
 from carm.data.schema import Family
 
 
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "t", "yes", "y"}
+    return False
+
+
 def accuracy(records: list[dict]) -> float:
     if not records:
         return 0.0
-    return float(np.mean([1.0 if r.get("correct", False) else 0.0 for r in records]))
+    return float(np.mean([1.0 if _as_bool(r.get("correct", False)) else 0.0 for r in records]))
+
+
+def task_success_single(row: dict[str, Any]) -> bool:
+    oracle_action = str(row.get("oracle_action", "")).strip().lower()
+    pred_action = str(row.get("pred_action", "")).strip().lower()
+    abstained = _as_bool(row.get("abstained", False))
+    correct = _as_bool(row.get("correct", False))
+
+    if oracle_action == "abstain":
+        return abstained
+    if oracle_action == "require_agreement":
+        return pred_action == "require_agreement" and (abstained or correct)
+    if oracle_action in {"trust_vision", "trust_text"}:
+        return pred_action == oracle_action and correct
+    return False
+
+
+def task_success_rate(records: list[dict]) -> float:
+    if not records:
+        return 0.0
+    vals = []
+    for r in records:
+        val = r.get("task_success", None)
+        vals.append(_as_bool(val) if val is not None else task_success_single(r))
+    return float(np.mean([1.0 if v else 0.0 for v in vals]))
+
+
+def coverage(records: list[dict]) -> float:
+    if not records:
+        return 0.0
+    return float(np.mean([1.0 if not _as_bool(r.get("abstained", False)) else 0.0 for r in records]))
 
 
 def per_class_f1(records: list[dict], key_true: str, key_pred: str, labels: list[str]) -> dict[str, float]:
@@ -37,7 +78,14 @@ def action_accuracy(records: list[dict]) -> float:
     return float(np.mean([1.0 if r.get("oracle_action") == r.get("pred_action") else 0.0 for r in records]))
 
 
-def risk_coverage_curve(records: list[dict]) -> list[dict[str, float]]:
+def _outcome_success(record: dict[str, Any], outcome_key: str) -> bool:
+    if outcome_key == "task_success":
+        val = record.get("task_success", None)
+        return _as_bool(val) if val is not None else task_success_single(record)
+    return _as_bool(record.get(outcome_key, False))
+
+
+def _risk_coverage_curve(records: list[dict], outcome_key: str) -> list[dict[str, float]]:
     if not records:
         return []
 
@@ -49,9 +97,17 @@ def risk_coverage_curve(records: list[dict]) -> list[dict[str, float]]:
     for i, rec in enumerate(scored, start=1):
         retained.append(rec)
         cov = i / total
-        acc = np.mean([1.0 if r.get("correct", False) else 0.0 for r in retained])
+        acc = np.mean([1.0 if _outcome_success(r, outcome_key) else 0.0 for r in retained])
         out.append({"coverage": round(float(cov), 4), "risk": round(1.0 - float(acc), 4)})
     return out
+
+
+def risk_coverage_curve(records: list[dict]) -> list[dict[str, float]]:
+    return _risk_coverage_curve(records, outcome_key="correct")
+
+
+def risk_coverage_curve_task_success(records: list[dict]) -> list[dict[str, float]]:
+    return _risk_coverage_curve(records, outcome_key="task_success")
 
 
 def expected_calibration_error(confidences: list[float], outcomes: list[int], bins: int = 10) -> float:
@@ -137,18 +193,46 @@ def _per_split_accuracy(records: list[dict]) -> dict[str, float]:
     return {k: accuracy(v) for k, v in sorted(groups.items(), key=lambda kv: kv[0])}
 
 
+def _per_split_task_success(records: list[dict]) -> dict[str, float]:
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for row in records:
+        groups[str(row.get("split", "train"))].append(row)
+    return {k: task_success_rate(v) for k, v in sorted(groups.items(), key=lambda kv: kv[0])}
+
+
+def _per_category_task_success(records: list[dict]) -> dict[str, float]:
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for row in records:
+        metadata = row.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        category = metadata.get("protocol_category")
+        if category is None:
+            continue
+        key = str(category).strip()
+        if not key:
+            continue
+        groups[key].append(row)
+    return {k: task_success_rate(v) for k, v in sorted(groups.items(), key=lambda kv: kv[0])}
+
+
 def summarize_metrics(records: list[dict]) -> dict[str, Any]:
     labels = [Family.NONE.value, Family.EXISTENCE.value, Family.COUNT.value, Family.ATTRIBUTE_COLOR.value]
 
     out: dict[str, Any] = {
         "accuracy": accuracy(records),
+        "task_success": task_success_rate(records),
+        "coverage": coverage(records),
         "action_accuracy": action_accuracy(records),
         "macro_f1_conflict": macro_f1(records, "family", "pred_conflict_type", labels),
         "per_type_f1": per_class_f1(records, "family", "pred_conflict_type", labels),
         "risk_coverage": risk_coverage_curve(records),
+        "risk_coverage_task_success": risk_coverage_curve_task_success(records),
         "monotonicity_violation_rate": monotonicity_violation_rate(records),
         "accuracy_per_family": _per_family_accuracy(records),
         "accuracy_per_split": _per_split_accuracy(records),
+        "task_success_per_split": _per_split_task_success(records),
+        "task_success_per_category": _per_category_task_success(records),
     }
     out.update(reliability_calibration(records))
 

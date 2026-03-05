@@ -64,6 +64,8 @@ class TestIntegrationPhaseASmoke(unittest.TestCase):
                 "abstained",
                 "final_answer",
                 "correct",
+                "metadata",
+                "task_success",
             }
             self.assertTrue(required.issubset(set(row.keys())))
 

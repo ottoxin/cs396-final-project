@@ -51,6 +51,16 @@ Split policy in prepared outputs:
 ## 6) Evaluation and Reporting
 
 - Baseline runner interface remains stable: `scripts/run_baselines.py`.
+- Active baseline set is locked to:
+  - `backbone_direct`
+  - `prompt_verification`
+  - `uncertainty_threshold_abstain`
+  - `probe_only_heuristic`
+- Two-pass self-consistency is excluded from baseline runner outputs.
+- Primary baseline comparison metric is `task_success` (action-aware), not raw `accuracy`.
+- Required baseline reporting artifacts are produced with `scripts/summarize_baselines_report.py` and include:
+  - baseline table (`csv` + `md`)
+  - `risk_coverage_task_success` curve JSON
 - Reported metrics must come from real-model runs.
 - Lightweight default tests stay inference-free.
 - Real Qwen inference tests are opt-in, and required before release reporting.

@@ -47,6 +47,28 @@ python3 scripts/run_baselines.py \
   --progress-every 500
 ```
 
+Active baseline set in the runner:
+- `backbone_direct`
+- `prompt_verification` (normalized agreement)
+- `uncertainty_threshold_abstain`
+- `probe_only_heuristic`
+
+Note:
+- After metric schema updates (for example `task_success` in per-example rows), use a fresh `--output_dir` for baseline reruns.
+
+### 3) Build paper-ready baseline summary tables
+
+```bash
+python3 scripts/summarize_baselines_report.py \
+  --baselines-root outputs/baselines/hf_5way_qwen \
+  --target-coverage 0.8
+```
+
+This writes:
+- `outputs/baselines/hf_5way_qwen/report/baseline_table.csv`
+- `outputs/baselines/hf_5way_qwen/report/baseline_table.md`
+- `outputs/baselines/hf_5way_qwen/report/risk_coverage_task_success_curves.json`
+
 ## Repository Layout
 
 - `carm/`: package code used by all runtime CLIs (data, models, train, eval, utils).
@@ -73,6 +95,7 @@ cs396-final-project/
 ├── scripts/      # runnable CLIs
 │   ├── prepare_hf_5way_dataset.py
 │   ├── run_baselines.py
+│   ├── summarize_baselines_report.py
 │   ├── train_carm.py
 │   └── evaluate_carm.py
 ├── tests/        # pytest suite (kept separate from runtime scripts)

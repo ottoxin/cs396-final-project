@@ -7,7 +7,7 @@ import torch
 from carm.data.schema import Action, ConflictExample, Family
 from carm.data.vqa_coco import infer_family
 from carm.models.interfaces import BackboneAdapter
-from carm.models.policy import apply_action_and_generate
+from carm.models.policy import answers_agree, apply_action_and_generate
 
 
 @dataclass
@@ -78,7 +78,7 @@ class PromptVerificationBaseline(BaseBaseline):
         pv = self.backbone.run_probe_vision_only(self._vision_payload(ex), ex.question)
         pt = self.backbone.run_probe_text_only(ex.text_input, ex.question)
 
-        if pv.answer_text != pt.answer_text:
+        if not answers_agree(pv.answer_text, pt.answer_text):
             return BaselinePrediction(
                 pred_conflict_type=self._family_from_question(ex.question).value,
                 pred_action=Action.ABSTAIN.value,

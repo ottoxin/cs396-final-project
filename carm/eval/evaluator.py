@@ -11,7 +11,7 @@ from carm.data.io import read_jsonl
 from carm.data.labeling import derive_reliability_target
 from carm.data.schema import ConflictExample, CorruptModality, Family
 from carm.eval.baselines import BaseBaseline
-from carm.eval.metrics import summarize_metrics
+from carm.eval.metrics import summarize_metrics, task_success_single
 from carm.models.interfaces import BackboneAdapter
 from carm.models.carm_model import CARMHeads, select_action
 from carm.models.policy import apply_action_and_generate, normalize_answer
@@ -148,7 +148,9 @@ def evaluate_predictor(
                 "confidence": float(pred.get("confidence", 0.0)),
                 "target_r_v": rel_t.r_v,
                 "target_r_t": rel_t.r_t,
+                "metadata": ex.metadata,
             }
+            row["task_success"] = task_success_single(row)
             if "audit" in pred:
                 row["audit"] = pred["audit"]
 

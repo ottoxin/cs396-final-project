@@ -107,9 +107,14 @@ eval:
   uncertainty_entropy_threshold: 1.9
   metrics:
     - accuracy
+    - task_success
+    - coverage
     - action_accuracy
     - macro_f1_conflict
     - risk_coverage
+    - risk_coverage_task_success
+    - task_success_per_split
+    - task_success_per_category
     - monotonicity_violation_rate
     - ece
     - brier

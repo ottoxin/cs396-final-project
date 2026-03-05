@@ -18,7 +18,6 @@ from carm.eval.baselines import (
     BackboneDirectBaseline,
     ProbeOnlyHeuristicBaseline,
     PromptVerificationBaseline,
-    TwoPassSelfConsistencyBaseline,
     UncertaintyThresholdAbstainBaseline,
 )
 from carm.eval.evaluator import evaluate_predictor
@@ -78,6 +77,8 @@ def _make_logger(path: Path):
 def _compact_metrics(metrics: dict) -> dict:
     keys = [
         "accuracy",
+        "task_success",
+        "coverage",
         "action_accuracy",
         "macro_f1_conflict",
         "ece",
@@ -85,6 +86,14 @@ def _compact_metrics(metrics: dict) -> dict:
         "monotonicity_violation_rate",
     ]
     return {k: metrics[k] for k in keys if k in metrics}
+
+
+def _prune_summary(summary: dict[str, dict], active_names: set[str]) -> tuple[dict[str, dict], list[str]]:
+    stale = sorted(k for k in summary if k not in active_names)
+    if not stale:
+        return summary, []
+    pruned = {k: v for k, v in summary.items() if k in active_names}
+    return pruned, stale
 
 
 def main() -> None:
@@ -119,9 +128,9 @@ def main() -> None:
             backbone,
             entropy_threshold=float(eval_cfg.get("uncertainty_entropy_threshold", 1.9)),
         ),
-        TwoPassSelfConsistencyBaseline(backbone),
         ProbeOnlyHeuristicBaseline(backbone),
     ]
+    active_baseline_names = {b.name for b in baselines}
 
     summary_path = out_dir / "summary.json"
     summary: dict[str, dict] = {}
@@ -130,7 +139,10 @@ def main() -> None:
             loaded = json.load(f)
         if isinstance(loaded, dict):
             summary = loaded
+            summary, stale = _prune_summary(summary, active_baseline_names)
             log(f"loaded existing summary with {len(summary)} baseline entries")
+            if stale:
+                log(f"pruned stale baseline summary entries: {', '.join(stale)}")
 
     for baseline in baselines:
         sub = out_dir / baseline.name

@@ -25,6 +25,13 @@ def parse_args() -> argparse.Namespace:
         default="test_id",
         choices=["train", "val", "test_id", "test_ood_family", "test_ood_severity", "test_ood_hard_swap", "all"],
     )
+    parser.add_argument("--track", choices=["answer", "policy", "all"], default="all")
+    parser.add_argument("--schema-version", default="2.0")
+    parser.add_argument(
+        "--report-calibration-heuristic",
+        action="store_true",
+        help="Include heuristic/fixed-confidence rows in calibration metrics.",
+    )
     return parser.parse_args()
 
 
@@ -40,6 +47,7 @@ def main() -> None:
     model_cfg = cfg.get("model", {})
     backbone_cfg = cfg.get("backbone", {})
     train_cfg = cfg.get("training", {})
+    eval_cfg = cfg.get("eval", {})
 
     model = CARMHeads(
         CARMModelConfig(
@@ -59,7 +67,16 @@ def main() -> None:
         raise RuntimeError("llava_next_8b is not runnable yet for evaluation. Use qwen2_5_vl_7b.")
 
     predictor = CARMPredictor(model=model, backbone=backbone, device=str(train_cfg.get("device", "cpu")))
-    metrics = evaluate_predictor(predictor, examples, output_dir=args.output_dir)
+    metrics = evaluate_predictor(
+        predictor,
+        examples,
+        output_dir=args.output_dir,
+        track=args.track,
+        schema_version=args.schema_version,
+        semantic_match_threshold=float(eval_cfg.get("semantic_match_threshold", 0.82)),
+        canonicalization_cfg=eval_cfg.get("answer_canonicalization", {}),
+        include_heuristic_calibration=bool(args.report_calibration_heuristic),
+    )
 
     print(json.dumps(metrics, indent=2))
 

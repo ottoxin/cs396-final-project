@@ -5,7 +5,9 @@ import argparse
 import datetime as dt
 import json
 import sys
+import time
 from pathlib import Path
+from typing import Callable
 
 # Make scripts runnable without requiring editable install when launched from outside repo root.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -13,12 +15,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from carm.data.io import load_examples
-from carm.data.schema import Split
+from carm.data.schema import ConflictExample, Split
 from carm.eval.baselines import (
+    AgreementCheckBaseline,
     BackboneDirectBaseline,
-    ProbeOnlyHeuristicBaseline,
-    PromptVerificationBaseline,
-    UncertaintyThresholdAbstainBaseline,
+    ConfidenceThresholdBaseline,
+    ProbeHeuristicBaseline,
 )
 from carm.eval.evaluator import evaluate_predictor
 from carm.models.registry import create_backbone
@@ -47,6 +49,28 @@ def parse_args() -> argparse.Namespace:
         default="all",
         help="all or comma-separated split names (train,val,test_id,test_ood_family,test_ood_severity,test_ood_hard_swap)",
     )
+    parser.add_argument(
+        "--track",
+        choices=["answer", "policy", "all"],
+        default="all",
+        help="Accepted for CLI compatibility; flattened evaluator outputs are track-agnostic.",
+    )
+    parser.add_argument(
+        "--schema-version",
+        default="2.0",
+        help="Accepted for CLI compatibility with older runs.",
+    )
+    parser.add_argument(
+        "--answer-strategy",
+        choices=["open_canonicalize"],
+        default="open_canonicalize",
+        help="Accepted for CLI compatibility with older runs.",
+    )
+    parser.add_argument(
+        "--report-calibration-heuristic",
+        action="store_true",
+        help="Accepted for CLI compatibility with older runs.",
+    )
     return parser.parse_args()
 
 
@@ -59,6 +83,58 @@ def _parse_split_filter(raw: str) -> set[str] | None:
     if unknown:
         raise ValueError(f"Unknown split filters: {unknown}. Valid: {sorted(valid)}")
     return splits
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{max(0.0, seconds):.1f}s"
+
+    total_seconds = max(0, int(seconds))
+    mins, secs = divmod(total_seconds, 60)
+    hrs, mins = divmod(mins, 60)
+    if hrs > 0:
+        return f"{hrs:d}h{mins:02d}m{secs:02d}s"
+    return f"{mins:d}m{secs:02d}s"
+
+
+def _resolve_image_path(path_value: str, *, project_root: Path = PROJECT_ROOT) -> Path | None:
+    direct = Path(path_value)
+    if direct.exists():
+        return direct.resolve()
+
+    rooted = (project_root / path_value).resolve()
+    if rooted.exists():
+        return rooted
+
+    return None
+
+
+def _resolve_example_image_paths(
+    examples: list[ConflictExample],
+    log: Callable[[str], None],
+    *,
+    project_root: Path = PROJECT_ROOT,
+) -> None:
+    missing: list[tuple[str, str]] = []
+    normalized = 0
+
+    for ex in examples:
+        resolved = _resolve_image_path(ex.image_path, project_root=project_root)
+        if resolved is None:
+            missing.append((ex.example_id, ex.image_path))
+            continue
+
+        resolved_str = str(resolved)
+        if ex.image_path != resolved_str:
+            ex.image_path = resolved_str
+            normalized += 1
+
+    if missing:
+        preview = "; ".join(f"{ex_id} -> {path}" for ex_id, path in missing[:5])
+        suffix = "" if len(missing) <= 5 else f" (showing 5/{len(missing)})"
+        raise FileNotFoundError(f"Missing image_path for {len(missing)} examples{suffix}: {preview}")
+
+    log(f"validated image paths for {len(examples)} examples; normalized={normalized}")
 
 
 def _make_logger(path: Path):
@@ -74,18 +150,17 @@ def _make_logger(path: Path):
     return _log
 
 
-def _compact_metrics(metrics: dict) -> dict:
-    keys = [
-        "accuracy",
+def _compact_metrics(entry: dict[str, object]) -> dict[str, object]:
+    compact: dict[str, object] = {}
+    for key in [
         "task_success",
+        "accuracy",
         "coverage",
-        "action_accuracy",
-        "macro_f1_conflict",
-        "ece",
-        "brier",
-        "monotonicity_violation_rate",
-    ]
-    return {k: metrics[k] for k in keys if k in metrics}
+        "accuracy_on_answered",
+    ]:
+        if key in entry:
+            compact[key] = entry[key]
+    return compact
 
 
 def _prune_summary(summary: dict[str, dict], active_names: set[str]) -> tuple[dict[str, dict], list[str]]:
@@ -97,6 +172,7 @@ def _prune_summary(summary: dict[str, dict], active_names: set[str]) -> tuple[di
 
 
 def main() -> None:
+    run_start = time.monotonic()
     args = parse_args()
     cfg = load_yaml_config(args.config)
     examples = load_examples(args.input_jsonl)
@@ -115,20 +191,24 @@ def main() -> None:
     log = _make_logger(log_path)
     log(
         f"start baselines config={args.config} input={args.input_jsonl} split={args.split} "
-        f"resume={args.resume} examples={len(examples)}"
+        f"resume={args.resume} track={args.track} schema_version={args.schema_version} examples={len(examples)}"
     )
+    _resolve_example_image_paths(examples, log)
 
     backbone = create_backbone(cfg.get("backbone", {}))
     eval_cfg = cfg.get("eval", {})
 
     baselines = [
         BackboneDirectBaseline(backbone),
-        PromptVerificationBaseline(backbone),
-        UncertaintyThresholdAbstainBaseline(
+        AgreementCheckBaseline(backbone),
+        ConfidenceThresholdBaseline(
             backbone,
-            entropy_threshold=float(eval_cfg.get("uncertainty_entropy_threshold", 1.9)),
+            threshold=float(eval_cfg.get("confidence_threshold", 0.3)),
         ),
-        ProbeOnlyHeuristicBaseline(backbone),
+        ProbeHeuristicBaseline(
+            backbone,
+            both_uncertain_threshold=float(eval_cfg.get("probe_both_uncertain_threshold", 2.0)),
+        ),
     ]
     active_baseline_names = {b.name for b in baselines}
 
@@ -146,31 +226,30 @@ def main() -> None:
 
     for baseline in baselines:
         sub = out_dir / baseline.name
-        metrics_path = sub / "metrics.json"
-        preds_path = sub / "per_example_predictions.jsonl"
-        if args.resume and metrics_path.exists() and preds_path.exists():
-            with metrics_path.open("r", encoding="utf-8") as f:
-                metrics = json.load(f)
-            summary[baseline.name] = metrics
-            log(f"skip baseline={baseline.name} (metrics already present)")
-            continue
 
         log(f"run baseline={baseline.name}")
-        metrics = evaluate_predictor(
+        baseline_start = time.monotonic()
+        results = evaluate_predictor(
             baseline,
             examples,
             output_dir=sub,
+            track=args.track,
+            schema_version=args.schema_version,
             resume=args.resume,
             progress_every=int(args.progress_every),
+            log_fn=log,
+            semantic_match_threshold=float(eval_cfg.get("semantic_match_threshold", 0.82)),
+            canonicalization_cfg=eval_cfg.get("answer_canonicalization", {}),
+            include_heuristic_calibration=bool(args.report_calibration_heuristic),
         )
-        summary[baseline.name] = metrics
+        summary[baseline.name] = results
         with summary_path.open("w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
-        log(f"done baseline={baseline.name}")
+        log(f"done baseline={baseline.name} elapsed={_format_duration(time.monotonic() - baseline_start)}")
 
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-    log("completed all baselines")
+    log(f"completed baselines elapsed={_format_duration(time.monotonic() - run_start)}")
     log(f"full summary json: {summary_path}")
 
     compact = {name: _compact_metrics(metrics) for name, metrics in summary.items()}

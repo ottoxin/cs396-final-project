@@ -35,28 +35,41 @@ This writes:
 - `data/cache/hf_5way/prepared/carm_vqa_5way.manifest.json`
 - `data/cache/hf_5way/images/*.jpg`
 
-### 2) Run baselines (Qwen)
+### 2) Run baselines (Qwen, flattened evaluator schema)
 
 ```bash
 python3 scripts/run_baselines.py \
   --config configs/hf_5way_qwen.yaml \
   --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
   --output_dir outputs/baselines/hf_5way_qwen \
-  --split all \
   --resume \
+  --split test_id \
   --progress-every 500
 ```
 
 Active baseline set in the runner:
 - `backbone_direct`
-- `prompt_verification` (normalized agreement)
-- `uncertainty_threshold_abstain`
-- `probe_only_heuristic`
+- `agreement_check`
+- `confidence_threshold`
+- `probe_heuristic`
 
-Note:
-- After metric schema updates (for example `task_success` in per-example rows), use a fresh `--output_dir` for baseline reruns.
+Each baseline uses the same flat evaluator contract:
+- per-example core fields: input/gold metadata, `final_answer`, `abstained`, `confidence`, `correct`, `task_success`
+- optional extra fields are appended only for richer predictors such as CARM
 
-### 3) Build paper-ready baseline summary tables
+Main artifacts:
+- per baseline directory:
+  - `per_example_predictions.jsonl`
+  - `metrics.json`
+- run root:
+  - `summary.json`
+
+The backbone now answers via free generation with family-specific prompting/parsing:
+- existence: `Answer yes or no only.`
+- count: `Answer with a single integer only.`
+- color: `Answer with a single color word only.`
+
+### 3) Build baseline summary tables
 
 ```bash
 python3 scripts/summarize_baselines_report.py \
@@ -65,8 +78,10 @@ python3 scripts/summarize_baselines_report.py \
 ```
 
 This writes:
-- `outputs/baselines/hf_5way_qwen/report/baseline_table.csv`
-- `outputs/baselines/hf_5way_qwen/report/baseline_table.md`
+- `outputs/baselines/hf_5way_qwen/report/main_table.csv`
+- `outputs/baselines/hf_5way_qwen/report/main_table.md`
+- `outputs/baselines/hf_5way_qwen/report/per_category_task_success.csv`
+- `outputs/baselines/hf_5way_qwen/report/per_category_task_success.md`
 - `outputs/baselines/hf_5way_qwen/report/risk_coverage_task_success_curves.json`
 
 ## Repository Layout
@@ -117,6 +132,7 @@ cs396-final-project/
 
 - `outputs/` is the run-output root (metrics JSON, per-example predictions, checkpoints, logs). It is empty until you run train/eval/baselines.
 - Baseline output example: `outputs/baselines/hf_5way_qwen/`.
+- Baseline run summary file: `summary.json`.
 - Train/eval scripts write wherever you pass `--output_dir`.
 - HF dataset/materialized images are written under `--cache-root` by `scripts/prepare_hf_5way_dataset.py`.
 - Default cache/download location is `data/cache/hf_5way/`, including:
@@ -125,12 +141,21 @@ cs396-final-project/
 - `data/cache/hf_5way/images/`
 - Hugging Face `datasets` may also keep its own cache under `~/.cache/huggingface/` unless you set `HF_HOME`/`HF_DATASETS_CACHE`.
 - `data/cache/` is the active HF-first local materialization area and should stay gitignored.
+- Archived stale or incompatible historical runs are moved under `outputs/archive/` so they are not accidentally resumed or compared against the active flattened schema.
 
 ## Optional Legacy Paths (Deprecated)
 
 The old local-build pipeline from raw VQAv2/COCO artifacts is archived and no longer part of the active workflow.
 
 For the canonical 5-way dataset workflow, use `scripts/prepare_hf_5way_dataset.py`.
+
+Legacy v1 predictions can be migrated once to v2 rows:
+
+```bash
+python3 scripts/migrate_predictions_v1_to_v2.py \
+  --input_jsonl <legacy_v1_predictions.jsonl> \
+  --output_jsonl <migrated_v2_predictions.jsonl>
+```
 
 Legacy scripts no longer in active use have been moved to:
 - `archive/legacy_scripts_<timestamp>/`
@@ -152,4 +177,4 @@ Opt-in real Qwen inference test:
 RUN_QWEN_INFERENCE_TESTS=1 pytest tests/test_qwen_inference_optin.py
 ```
 
-Real-model runs remain required for reported baseline results; the opt-in test is a pre-release validation gate.
+This test exercises real free-generation inference for existence, count, and color prompts and checks the canonical parsed answers. Real-model runs remain required for reported baseline results; the opt-in test is a pre-release validation gate.

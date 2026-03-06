@@ -25,6 +25,10 @@ def create_backbone(backbone_cfg: dict[str, Any]):
     config = BackboneConfig(
         hidden_size=int(backbone_cfg.get("hidden_size", 128)),
         seq_len=int(backbone_cfg.get("seq_len", 32)),
+        max_new_tokens=int(backbone_cfg.get("max_new_tokens", 10)),
+        count_min=int(backbone_cfg.get("count_min", 0)),
+        count_max=int(backbone_cfg.get("count_max", 20)),
+        color_vocab=tuple(backbone_cfg.get("color_vocab", ())),
     )
 
     if name == "qwen2_5_vl_7b":

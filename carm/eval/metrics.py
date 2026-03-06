@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import Any
 
 import numpy as np
-
-from carm.data.schema import Family
 
 
 def _as_bool(value: object) -> bool:
@@ -18,229 +16,280 @@ def _as_bool(value: object) -> bool:
     return False
 
 
-def accuracy(records: list[dict]) -> float:
-    if not records:
-        return 0.0
-    return float(np.mean([1.0 if _as_bool(r.get("correct", False)) else 0.0 for r in records]))
+def _example_value(row: dict[str, Any], key: str, default: Any = None) -> Any:
+    if key in row:
+        return row.get(key, default)
+    example = row.get("example")
+    if isinstance(example, dict):
+        return example.get(key, default)
+    return default
 
 
-def task_success_single(row: dict[str, Any]) -> bool:
-    oracle_action = str(row.get("oracle_action", "")).strip().lower()
-    pred_action = str(row.get("pred_action", "")).strip().lower()
-    abstained = _as_bool(row.get("abstained", False))
-    correct = _as_bool(row.get("correct", False))
+def _target_value(row: dict[str, Any], key: str, default: Any = None) -> Any:
+    if key in row:
+        return row.get(key, default)
+    targets = row.get("targets")
+    if isinstance(targets, dict):
+        return targets.get(key, default)
+    return default
 
-    if oracle_action == "abstain":
-        return abstained
-    if oracle_action == "require_agreement":
-        return pred_action == "require_agreement" and (abstained or correct)
-    if oracle_action in {"trust_vision", "trust_text"}:
-        return pred_action == oracle_action and correct
+
+def _derived_value(row: dict[str, Any], key: str, default: Any = None) -> Any:
+    if key in row:
+        return row.get(key, default)
+    derived = row.get("derived")
+    if isinstance(derived, dict):
+        return derived.get(key, default)
+    return default
+
+
+def _prediction_value(row: dict[str, Any], key: str, default: Any = None) -> Any:
+    if key in row:
+        return row.get(key, default)
+
+    policy = row.get("policy_output")
+    if isinstance(policy, dict) and key in policy:
+        return policy.get(key, default)
+
+    answer = row.get("answer_output")
+    if isinstance(answer, dict):
+        if key == "final_answer":
+            return answer.get("raw_text", default)
+        if key == "confidence":
+            if "policy_confidence" in answer:
+                return answer.get("policy_confidence", default)
+            return answer.get("answer_confidence", default)
+
+    return default
+
+
+def _correct_value(row: dict[str, Any]) -> bool:
+    if "correct" in row:
+        return _as_bool(row.get("correct"))
+
+    for key in ("canonical_correct", "exact_correct", "semantic_correct"):
+        value = _derived_value(row, key, None)
+        if value is not None:
+            return _as_bool(value)
     return False
 
 
-def task_success_rate(records: list[dict]) -> float:
+def _confidence_value(row: dict[str, Any]) -> float:
+    value = _prediction_value(row, "confidence", None)
+    if value is None:
+        value = _prediction_value(row, "policy_confidence", None)
+    if value is None:
+        value = _prediction_value(row, "answer_confidence", 0.0)
+    return float(value or 0.0)
+
+
+def _abstained_value(row: dict[str, Any]) -> bool:
+    return _as_bool(_prediction_value(row, "abstained", False))
+
+
+def _protocol_category_value(row: dict[str, Any]) -> str:
+    category = str(_example_value(row, "protocol_category", "")).strip()
+    if category:
+        return category
+
+    metadata = _example_value(row, "metadata", {})
+    if isinstance(metadata, dict):
+        return str(metadata.get("protocol_category", "")).strip()
+    return ""
+
+
+def task_success_from_components(
+    oracle_action: str,
+    *args: object,
+    protocol_category: str | None = None,
+) -> bool:
+    if len(args) == 2:
+        pred_action = None
+        abstained = _as_bool(args[0])
+        correct = _as_bool(args[1])
+    elif len(args) == 3:
+        pred_action = str(args[0]).strip().lower() if args[0] is not None else ""
+        abstained = _as_bool(args[1])
+        correct = _as_bool(args[2])
+    else:
+        raise TypeError("task_success_from_components expects (oracle_action, abstained, correct) or legacy 4-arg form.")
+
+    oracle = str(oracle_action).strip().lower()
+    if pred_action:
+        if oracle == "abstain":
+            return abstained
+        if oracle == "require_agreement":
+            return pred_action == "require_agreement" and (abstained or correct)
+        if oracle in {"trust_vision", "trust_text"}:
+            return pred_action == oracle and correct
+        return False
+
+    category = str(protocol_category or "").strip().upper()
+
+    if category == "C2":
+        return abstained
+    if category == "C5" or oracle == "abstain":
+        return abstained
+    if oracle == "require_agreement":
+        return abstained or correct
+    if oracle in {"trust_vision", "trust_text"}:
+        return (not abstained) and correct
+    return False
+
+
+def task_success_single(row: dict[str, Any]) -> bool:
+    return task_success_from_components(
+        str(_target_value(row, "oracle_action", "")),
+        _prediction_value(row, "pred_action", None),
+        _abstained_value(row),
+        _correct_value(row),
+        protocol_category=_protocol_category_value(row),
+    )
+
+
+def task_success_rate(records: list[dict[str, Any]]) -> float:
     if not records:
         return 0.0
-    vals = []
-    for r in records:
-        val = r.get("task_success", None)
-        vals.append(_as_bool(val) if val is not None else task_success_single(r))
-    return float(np.mean([1.0 if v else 0.0 for v in vals]))
+    return float(np.mean([1.0 if task_success_single(r) else 0.0 for r in records]))
 
 
-def coverage(records: list[dict]) -> float:
+def accuracy(records: list[dict[str, Any]]) -> float:
     if not records:
         return 0.0
-    return float(np.mean([1.0 if not _as_bool(r.get("abstained", False)) else 0.0 for r in records]))
+    return float(np.mean([1.0 if _correct_value(r) else 0.0 for r in records]))
 
 
-def per_class_f1(records: list[dict], key_true: str, key_pred: str, labels: list[str]) -> dict[str, float]:
-    out: dict[str, float] = {}
-    for label in labels:
-        tp = sum(1 for r in records if r.get(key_true) == label and r.get(key_pred) == label)
-        fp = sum(1 for r in records if r.get(key_true) != label and r.get(key_pred) == label)
-        fn = sum(1 for r in records if r.get(key_true) == label and r.get(key_pred) != label)
-        precision = tp / (tp + fp) if (tp + fp) else 0.0
-        recall = tp / (tp + fn) if (tp + fn) else 0.0
-        out[label] = 0.0 if precision + recall == 0.0 else float(2 * precision * recall / (precision + recall))
-    return out
-
-
-def macro_f1(records: list[dict], key_true: str, key_pred: str, labels: list[str]) -> float:
-    f1 = per_class_f1(records, key_true, key_pred, labels)
-    return float(np.mean(list(f1.values()))) if f1 else 0.0
-
-
-def action_accuracy(records: list[dict]) -> float:
+def coverage(records: list[dict[str, Any]]) -> float:
     if not records:
         return 0.0
-    return float(np.mean([1.0 if r.get("oracle_action") == r.get("pred_action") else 0.0 for r in records]))
+    return float(np.mean([0.0 if _abstained_value(r) else 1.0 for r in records]))
 
 
-def _outcome_success(record: dict[str, Any], outcome_key: str) -> bool:
-    if outcome_key == "task_success":
-        val = record.get("task_success", None)
-        return _as_bool(val) if val is not None else task_success_single(record)
-    return _as_bool(record.get(outcome_key, False))
+def accuracy_on_answered(records: list[dict[str, Any]]) -> float:
+    answered = [r for r in records if not _abstained_value(r)]
+    if not answered:
+        return 0.0
+    return float(np.mean([1.0 if _correct_value(r) else 0.0 for r in answered]))
 
 
-def _risk_coverage_curve(records: list[dict], outcome_key: str) -> list[dict[str, float]]:
+def _task_success_with_threshold(row: dict[str, Any], threshold: float) -> bool:
+    effective_abstained = _abstained_value(row) or (_confidence_value(row) < threshold)
+    pred_action = _prediction_value(row, "pred_action", None)
+    return task_success_from_components(
+        str(_target_value(row, "oracle_action", "")),
+        pred_action,
+        effective_abstained,
+        _correct_value(row),
+        protocol_category=_protocol_category_value(row),
+    )
+
+
+def risk_coverage_curve_task_success(records: list[dict[str, Any]]) -> list[dict[str, float]]:
     if not records:
         return []
 
-    scored = sorted(records, key=lambda r: float(r.get("confidence", 0.0)), reverse=True)
-    out: list[dict[str, float]] = []
-    retained: list[dict[str, Any]] = []
-    total = len(scored)
+    thresholds = sorted({_confidence_value(r) for r in records}, reverse=True)
+    thresholds = [max(thresholds) + 1e-12] + thresholds
 
-    for i, rec in enumerate(scored, start=1):
-        retained.append(rec)
-        cov = i / total
-        acc = np.mean([1.0 if _outcome_success(r, outcome_key) else 0.0 for r in retained])
-        out.append({"coverage": round(float(cov), 4), "risk": round(1.0 - float(acc), 4)})
-    return out
+    curve: list[dict[str, float]] = []
+    for threshold in thresholds:
+        answered = [r for r in records if not (_abstained_value(r) or (_confidence_value(r) < threshold))]
+        coverage_at_threshold = len(answered) / len(records)
+        success = np.mean([1.0 if _task_success_with_threshold(r, threshold) else 0.0 for r in records])
+        curve.append(
+            {
+                "threshold": float(threshold),
+                "coverage": float(coverage_at_threshold),
+                "risk": float(1.0 - success),
+            }
+        )
 
-
-def risk_coverage_curve(records: list[dict]) -> list[dict[str, float]]:
-    return _risk_coverage_curve(records, outcome_key="correct")
-
-
-def risk_coverage_curve_task_success(records: list[dict]) -> list[dict[str, float]]:
-    return _risk_coverage_curve(records, outcome_key="task_success")
-
-
-def expected_calibration_error(confidences: list[float], outcomes: list[int], bins: int = 10) -> float:
-    if not confidences:
-        return 0.0
-    conf = np.asarray(confidences)
-    y = np.asarray(outcomes)
-    edges = np.linspace(0.0, 1.0, bins + 1)
-    ece = 0.0
-    for i in range(bins):
-        lo, hi = edges[i], edges[i + 1]
-        mask = (conf >= lo) & (conf < hi if i < bins - 1 else conf <= hi)
-        if not np.any(mask):
+    deduped: list[dict[str, float]] = []
+    for point in curve:
+        if deduped and abs(point["coverage"] - deduped[-1]["coverage"]) < 1e-12 and abs(point["risk"] - deduped[-1]["risk"]) < 1e-12:
+            deduped[-1]["threshold"] = min(deduped[-1]["threshold"], point["threshold"])
             continue
-        ece += (np.sum(mask) / len(conf)) * abs(float(np.mean(conf[mask])) - float(np.mean(y[mask])))
-    return float(ece)
+        deduped.append(point)
+    return deduped
 
 
-def brier_score(confidences: list[float], outcomes: list[int]) -> float:
-    if not confidences:
+def _mean_task_success(records: list[dict[str, Any]]) -> float:
+    if not records:
         return 0.0
-    conf = np.asarray(confidences)
-    y = np.asarray(outcomes)
-    return float(np.mean((conf - y) ** 2))
+    return float(np.mean([1.0 if task_success_single(r) else 0.0 for r in records]))
 
 
-def reliability_calibration(records: list[dict]) -> dict[str, float]:
-    rv_conf = [float(r["r_v"]) for r in records]
-    rt_conf = [float(r["r_t"]) for r in records]
-    rv_out = [1 if float(r.get("target_r_v", 0.0)) >= 0.5 else 0 for r in records]
-    rt_out = [1 if float(r.get("target_r_t", 0.0)) >= 0.5 else 0 for r in records]
+def _ordered_group_items(groups: dict[str, list[dict[str, Any]]], preferred: list[str]) -> list[tuple[str, list[dict[str, Any]]]]:
+    ordered: list[tuple[str, list[dict[str, Any]]]] = []
+    seen: set[str] = set()
+    for key in preferred:
+        if key in groups:
+            ordered.append((key, groups[key]))
+            seen.add(key)
+    for key in sorted(groups):
+        if key not in seen:
+            ordered.append((key, groups[key]))
+    return ordered
 
-    ece_r_v = expected_calibration_error(rv_conf, rv_out)
-    ece_r_t = expected_calibration_error(rt_conf, rt_out)
-    brier_r_v = brier_score(rv_conf, rv_out)
-    brier_r_t = brier_score(rt_conf, rt_out)
+
+def _per_category_task_success(records: list[dict[str, Any]]) -> dict[str, float]:
+    by_category: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in records:
+        category = _protocol_category_value(row)
+        if category:
+            by_category[category].append(row)
     return {
-        "ece_r_v": ece_r_v,
-        "ece_r_t": ece_r_t,
-        "brier_r_v": brier_r_v,
-        "brier_r_t": brier_r_t,
-        "ece": float((ece_r_v + ece_r_t) / 2.0),
-        "brier": float((brier_r_v + brier_r_t) / 2.0),
+        key: _mean_task_success(rows)
+        for key, rows in _ordered_group_items(by_category, ["C1", "C2", "C3", "C4", "C5"])
     }
 
 
-def monotonicity_violation_rate(records: list[dict]) -> float:
-    grouped: dict[tuple[str, str], list[tuple[int, float]]] = defaultdict(list)
-    for r in records:
-        mod = str(r.get("corrupt_modality", "none"))
-        if mod == "none":
-            continue
-        key = (mod, str(r.get("operator", "unknown")))
-        severity = int(r.get("severity", 0))
-        rel = float(r["r_v"] if mod == "vision" else r["r_t"])
-        grouped[key].append((severity, rel))
-
-    violations = 0
-    checks = 0
-    for _, seq in grouped.items():
-        by_sev: dict[int, list[float]] = defaultdict(list)
-        for severity, rel in seq:
-            by_sev[severity].append(rel)
-        ordered = sorted((s, float(np.mean(v))) for s, v in by_sev.items())
-        for i in range(1, len(ordered)):
-            checks += 1
-            if ordered[i][1] > ordered[i - 1][1] + 1e-6:
-                violations += 1
-    return float(violations / checks) if checks else 0.0
-
-
-def _per_family_accuracy(records: list[dict]) -> dict[str, float]:
-    groups: dict[str, list[dict]] = defaultdict(list)
+def _per_category_accuracy(records: list[dict[str, Any]]) -> dict[str, float]:
+    by_category: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in records:
-        groups[str(row.get("family", "none"))].append(row)
-    return {k: accuracy(v) for k, v in sorted(groups.items(), key=lambda kv: kv[0])}
+        category = _protocol_category_value(row)
+        if category:
+            by_category[category].append(row)
+    return {
+        key: accuracy(rows)
+        for key, rows in _ordered_group_items(by_category, ["C1", "C2", "C3", "C4", "C5"])
+    }
 
 
-def _per_split_accuracy(records: list[dict]) -> dict[str, float]:
-    groups: dict[str, list[dict]] = defaultdict(list)
+def _per_split_task_success(records: list[dict[str, Any]]) -> dict[str, float]:
+    by_split: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in records:
-        groups[str(row.get("split", "train"))].append(row)
-    return {k: accuracy(v) for k, v in sorted(groups.items(), key=lambda kv: kv[0])}
+        split = str(_example_value(row, "split", "")).strip()
+        if split:
+            by_split[split].append(row)
+    return {
+        key: _mean_task_success(rows)
+        for key, rows in _ordered_group_items(
+            by_split,
+            ["train", "val", "test_id", "test_ood_family", "test_ood_severity", "test_ood_hard_swap"],
+        )
+    }
 
 
-def _per_split_task_success(records: list[dict]) -> dict[str, float]:
-    groups: dict[str, list[dict]] = defaultdict(list)
+def _counts_by(records: list[dict[str, Any]], value_fn) -> dict[str, int]:
+    groups: dict[str, int] = defaultdict(int)
     for row in records:
-        groups[str(row.get("split", "train"))].append(row)
-    return {k: task_success_rate(v) for k, v in sorted(groups.items(), key=lambda kv: kv[0])}
+        value = str(value_fn(row)).strip()
+        if value:
+            groups[value] += 1
+    return dict(groups)
 
 
-def _per_category_task_success(records: list[dict]) -> dict[str, float]:
-    groups: dict[str, list[dict]] = defaultdict(list)
-    for row in records:
-        metadata = row.get("metadata")
-        if not isinstance(metadata, dict):
-            continue
-        category = metadata.get("protocol_category")
-        if category is None:
-            continue
-        key = str(category).strip()
-        if not key:
-            continue
-        groups[key].append(row)
-    return {k: task_success_rate(v) for k, v in sorted(groups.items(), key=lambda kv: kv[0])}
-
-
-def summarize_metrics(records: list[dict]) -> dict[str, Any]:
-    labels = [Family.NONE.value, Family.EXISTENCE.value, Family.COUNT.value, Family.ATTRIBUTE_COLOR.value]
-
-    out: dict[str, Any] = {
-        "accuracy": accuracy(records),
+def summarize_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
         "task_success": task_success_rate(records),
+        "accuracy": accuracy(records),
         "coverage": coverage(records),
-        "action_accuracy": action_accuracy(records),
-        "macro_f1_conflict": macro_f1(records, "family", "pred_conflict_type", labels),
-        "per_type_f1": per_class_f1(records, "family", "pred_conflict_type", labels),
-        "risk_coverage": risk_coverage_curve(records),
-        "risk_coverage_task_success": risk_coverage_curve_task_success(records),
-        "monotonicity_violation_rate": monotonicity_violation_rate(records),
-        "accuracy_per_family": _per_family_accuracy(records),
-        "accuracy_per_split": _per_split_accuracy(records),
-        "task_success_per_split": _per_split_task_success(records),
+        "accuracy_on_answered": accuracy_on_answered(records),
         "task_success_per_category": _per_category_task_success(records),
+        "task_success_per_split": _per_split_task_success(records),
+        "accuracy_per_category": _per_category_accuracy(records),
+        "risk_coverage_task_success": risk_coverage_curve_task_success(records),
+        "example_counts_by_split": _counts_by(records, lambda row: _example_value(row, "split", "")),
+        "example_counts_by_category": _counts_by(records, _protocol_category_value),
     }
-    out.update(reliability_calibration(records))
-
-    consistent = [r for r in records if r.get("family") == Family.NONE.value]
-    conflict = [r for r in records if r.get("family") != Family.NONE.value]
-    out["accuracy_consistent"] = accuracy(consistent)
-    out["accuracy_conflict"] = accuracy(conflict)
-
-    split_counts = Counter(str(r.get("split", "unknown")) for r in records)
-    out["example_counts_by_split"] = dict(sorted(split_counts.items(), key=lambda kv: kv[0]))
-    return out

@@ -23,11 +23,15 @@ For planning and release accounting, we distinguish the nominal balanced target 
 
 ## Baseline Evaluation
 
-The updated evaluation protocol uses the same constructed dataset with deterministic `train`, `val`, and `test` (`test_id`) partitions, where `val` is reserved for baseline development and threshold selection, and `test` (`test_id`) is reserved for locked final reporting. Baseline comparison is restricted to four methods (`backbone_direct`, `prompt_verification`, `uncertainty_threshold_abstain`, and `probe_only_heuristic`).
+The updated evaluation protocol uses the same constructed dataset with deterministic `train`, `val`, and `test` (`test_id`) partitions, where `val` is reserved for baseline development and threshold selection, and `test` (`test_id`) is reserved for locked final reporting. Baseline comparison is restricted to four methods (`backbone_direct`, `agreement_check`, `confidence_threshold`, and `probe_heuristic`).
 
-Evaluation is record-centric: each baseline emits standardized per-example outputs that include gold action context, predicted action and answer, abstention state, and confidence, from which all aggregate quantities are derived. Reporting in the main paper emphasizes action routing quality, abstention-aware answering quality, and selective prediction behavior under confidence thresholding, with `task_success` treated as the primary objective-aligned metric for cross-method comparison.
+The Qwen backbone answer path is open-generation rather than closed-vocabulary next-token selection. For each question family, the model is prompted to answer in a constrained natural form (`yes/no`, a single integer, or a single color word), after which the generated text is canonicalized before evaluation. This change is critical for count questions, where closed-vocabulary selection produced invalid behavior in earlier runs.
 
-To keep the main text concise, formal metric definitions, mathematical expressions, confidence standardization, C1-C5 interpretability criteria, and the locked validation-to-test workflow are provided in Appendix B.
+Evaluation is record-centric: each baseline emits standardized per-example core outputs containing input/gold context, `final_answer`, `abstained`, `confidence`, `correct`, and `task_success`, from which all aggregate quantities are derived. When evaluating CARM, optional diagnostic fields such as `pred_action`, `pred_conflict_type`, `r_v`, `r_t`, and `audit` may also be appended, but baseline comparison does not depend on those extra fields.
+
+Metric choice follows the simplified baseline interface. Headline reporting uses raw `accuracy`, `coverage`, `accuracy_on_answered`, `task_success`, and selective-prediction summaries from the task-success risk-coverage curve (`Risk@target`, `AURC`). Category-level C1-C5 breakdowns remain required because aggregate metrics alone can hide protocol-specific failure modes. For flat baselines, task success is intentionally outcome-based: C2 and C5 are successful only under abstention, other `require_agreement` cases succeed when the method abstains or answers correctly, and `trust_vision` / `trust_text` cases succeed only when the method answers correctly without abstaining. Action-aware routing diagnostics remain optional analyses for CARM outputs rather than headline baseline metrics.
+
+To keep the main text concise, formal metric definitions, mathematical expressions, confidence standardization, and the locked validation-to-test workflow are provided in Appendix B.
 
 ---
 
@@ -97,9 +101,75 @@ The realized split allocation for the current prepared release is summarized bel
 
 Caption-edit workload follows directly from the category design. LLM caption perturbation is required for C2, C3, and C5. In the realized `44,982` release, this corresponds to `26,982` caption edits (`8,992 + 8,994 + 8,996`), with `DIFFERENT:IRRELEVANT = 8,992:17,990` (approximately `1:2.00`). Image-side irrelevance for C4 and C5 is generated through deterministic image swapping rather than blur/occlusion severity edits.
 
-### A7. Illustrative Raw-to-Constructed Examples
+### A7. Illustrative Raw-to-Constructed Examples and Category Manipulation Demonstration
 
-The examples below illustrate representative mappings from raw VQAv2/COCO annotations to normalized clean base records for the three active families.
+This appendix subsection provides both family-level examples and an explicit category-level demonstration of how each C1-C5 variant is constructed from a clean anchor record. The category protocol is implemented through controlled text-side and image-side manipulations, while preserving deterministic oracle-action assignment.
+
+| Category | Image state | Caption state | Manipulation path | Effective input construction | Oracle action |
+| --- | --- | --- | --- | --- | --- |
+| C1 | clean | clean | no perturbation | original image + clean caption | `REQUIRE_AGREEMENT` |
+| C2 | clean | different | LLM caption rewrite to semantically plausible but conflicting content | original image + `DIFFERENT` perturbed caption | `REQUIRE_AGREEMENT` |
+| C3 | clean | irrelevant | LLM caption rewrite to unrelated content | original image + `IRRELEVANT` perturbed caption | `TRUST_VISION` |
+| C4 | irrelevant | clean | deterministic image swap to an irrelevant donor image | swapped image + clean caption | `TRUST_TEXT` |
+| C5 | irrelevant | irrelevant | combined C3 (text-side irrelevance) + C4 (image-side irrelevance) | swapped image + `IRRELEVANT` perturbed caption | `ABSTAIN` |
+
+The following schema-level example illustrates how one clean anchor can be expanded into all five categories under this manipulation policy.
+
+```json
+{
+  "anchor_example": {
+    "example_id": "vqa-100000002::clean",
+    "question": "Is the cat wearing a collar?",
+    "clean_caption": "A cat sitting next to a wii controller, upside down.",
+    "image_state": "clean",
+    "caption_state": "clean"
+  },
+  "category_variants": [
+    {
+      "protocol_category": "C1",
+      "image_state": "clean",
+      "caption_state": "clean",
+      "text_input_source": "clean_caption",
+      "image_source": "original_image",
+      "oracle_action": "require_agreement"
+    },
+    {
+      "protocol_category": "C2",
+      "image_state": "clean",
+      "caption_state": "different",
+      "text_input_source": "perturbed_caption_different",
+      "image_source": "original_image",
+      "oracle_action": "require_agreement"
+    },
+    {
+      "protocol_category": "C3",
+      "image_state": "clean",
+      "caption_state": "irrelevant",
+      "text_input_source": "perturbed_caption_irrelevant",
+      "image_source": "original_image",
+      "oracle_action": "trust_vision"
+    },
+    {
+      "protocol_category": "C4",
+      "image_state": "irrelevant",
+      "caption_state": "clean",
+      "text_input_source": "clean_caption",
+      "image_source": "swapped_irrelevant_image",
+      "oracle_action": "trust_text"
+    },
+    {
+      "protocol_category": "C5",
+      "image_state": "irrelevant",
+      "caption_state": "irrelevant",
+      "text_input_source": "perturbed_caption_irrelevant",
+      "image_source": "swapped_irrelevant_image",
+      "oracle_action": "abstain"
+    }
+  ]
+}
+```
+
+The family-specific examples below illustrate representative mappings from raw VQAv2/COCO annotations to normalized clean base records for the three active families; each base record is subsequently expanded into the C1-C5 variants using the manipulation rules above.
 
 ```json
 {
@@ -176,17 +246,13 @@ The examples below illustrate representative mappings from raw VQAv2/COCO annota
 
 The evaluation protocol uses one constructed dataset with deterministic `train`, `val`, and `test` (`test_id`) partitions. The `train` split is reserved for later CARM model training, while baseline development is performed on `val` and final reporting is performed on `test` (`test_id`) only. Development evaluation on `val` is used for threshold selection and sanity checks. Final evaluation on `test` (`test_id`) is run with all choices locked, with no additional tuning.
 
-The active baseline comparison set contains four methods: Direct (`backbone_direct`), Verification (`prompt_verification`), Uncertainty-threshold abstain (`uncertainty_threshold_abstain`), and Probe heuristic (`probe_only_heuristic`). Self-consistency is explicitly excluded from the updated protocol. For each example, every baseline emits a standardized record containing input and gold fields (`protocol_category` C1-C5, `oracle_action`, `gold_answer`, and optional `family`), prediction fields (`pred_action`, `final_answer`, `abstained`, `confidence`), and derived evaluation fields (`correct`, `task_success`). This per-example table is treated as the single source of truth for all aggregate metrics and plots.
+The active baseline comparison set contains four methods: Direct (`backbone_direct`), Agreement check (`agreement_check`), Confidence threshold (`confidence_threshold`), and Probe heuristic (`probe_heuristic`). The Direct baseline returns the backbone response from full multimodal input (image, caption, and question) without abstention. The Agreement-check baseline generates vision-only and text-only probe answers and abstains when those answers disagree. The Confidence-threshold baseline computes inverse normalized entropy from the multimodal answer distribution and abstains below a tuned threshold. The Probe-heuristic baseline runs vision-only and text-only probes, routes to the lower-entropy probe answer, and abstains only when both probes are sufficiently uncertain.
 
-### B2. Routing and Answering Metrics
+For each example, every baseline emits a standardized core record containing input and gold fields (`example_id`, `base_id`, `image_path`, `text_input`, `question`, `gold_answer`, `split`, `family`, `oracle_action`, and `protocol_category`), prediction fields (`final_answer`, `abstained`, `confidence`), and derived evaluation fields (`correct`, `task_success`). This per-example table is treated as the single source of truth for all aggregate metrics and plots. When evaluating CARM, optional extra diagnostic fields may be appended, but they are not required by the baseline workflow.
 
-Routing metrics evaluate action selection quality independently from answer-string match. Action accuracy is defined as:
+### B2. Answering and Task-Success Metrics
 
-$$
-\mathrm{ActionAcc}=\frac{1}{N}\sum_{i=1}^{N}\mathbf{1}[\mathrm{pred\_action}_i=\mathrm{oracle\_action}_i].
-$$
-
-We also report macro-F1 over the four actions to reduce class-imbalance sensitivity, and a 4x4 routing confusion matrix (rows: oracle action, columns: predicted action) to localize arbitration failure modes.
+Because the four baselines do not emit routing actions, the main baseline table does not report action-classification metrics. Instead, it focuses on answering quality, abstention behavior, and outcome-aligned task success. When CARM is evaluated, action-aware diagnostics can still be computed from the optional appended predictor fields.
 
 Coverage is defined as:
 
@@ -208,14 +274,14 @@ $$
 {\sum_{i=1}^{N}\mathbf{1}[\neg \mathrm{abstained}_i]}.
 $$
 
-Raw answer accuracy alone is insufficient under C2/C5 behavior, so the primary project metric is action-aware task success. For each example:
+Raw answer accuracy alone is insufficient under C2/C5 behavior, so the primary project metric is task success. For flat baseline records, task success is defined as:
 
 $$
 \mathrm{task\_success}_i=
 \begin{cases}
-1, & \text{if } \mathrm{oracle\_action}_i=\mathrm{abstain}\ \land\ \mathrm{abstained}_i, \\
-1, & \text{if } \mathrm{oracle\_action}_i=\mathrm{require\_agreement}\ \land\ \mathrm{pred\_action}_i=\mathrm{require\_agreement}\ \land\ (\mathrm{abstained}_i \lor \mathrm{correct}_i), \\
-1, & \text{if } \mathrm{oracle\_action}_i\in\{\mathrm{trust\_vision},\mathrm{trust\_text}\}\ \land\ \mathrm{pred\_action}_i=\mathrm{oracle\_action}_i\ \land\ \mathrm{correct}_i, \\
+1, & \text{if } \mathrm{protocol\_category}_i\in\{\mathrm{C2},\mathrm{C5}\}\ \land\ \mathrm{abstained}_i, \\
+1, & \text{if } \mathrm{oracle\_action}_i=\mathrm{require\_agreement}\ \land\ \mathrm{protocol\_category}_i\notin\{\mathrm{C2},\mathrm{C5}\}\ \land\ (\mathrm{abstained}_i \lor \mathrm{correct}_i), \\
+1, & \text{if } \mathrm{oracle\_action}_i\in\{\mathrm{trust\_vision},\mathrm{trust\_text}\}\ \land\ \neg \mathrm{abstained}_i \land \mathrm{correct}_i, \\
 0, & \text{otherwise}.
 \end{cases}
 $$
@@ -228,7 +294,7 @@ $$
 
 ### B3. Selective Prediction and Confidence Standardization
 
-Selective prediction behavior is evaluated by sweeping thresholds over a scalar confidence score. At threshold $\tau$, examples below threshold are abstained and examples above threshold are retained; this yields coverage$(\tau)$ and risk$(\tau)$. Risk is reported with two outcomes: the traditional answer-correctness outcome (`correct`) and the objective-aligned outcome (`task_success`), with the latter treated as the primary curve for this project. Lower risk at fixed coverage indicates better selective behavior. We summarize each curve using `Risk@80% coverage` (or the nearest achievable point) and `AURC` (area under the risk-coverage curve, lower is better).
+Selective prediction behavior is evaluated by sweeping thresholds over a scalar confidence score. At threshold $\tau$, examples below threshold are forcibly abstained and examples above threshold are retained; this yields coverage$(\tau)$ and risk$(\tau)$. The primary risk curve is defined on `task_success` rather than raw correctness. Lower risk at fixed coverage indicates better selective behavior. We summarize the curve using `Risk@80% coverage` (or the nearest achievable point) and `AURC` (area under the risk-coverage curve, lower is better).
 
 The primary confidence definition is inverse normalized entropy:
 
@@ -236,10 +302,10 @@ $$
 \mathrm{confidence}=1-\mathrm{normalized\_entropy}(p),
 $$
 
-where $p$ is the answer distribution used by the baseline for its decision path (vision-only, text-only, or multimodal).
+where $p$ is the answer distribution used by the baseline for its decision path (vision-only, text-only, or multimodal). For the generation-based backbone, this distribution is derived from the parsed answer path and the model's token-level generation scores.
 
 ### B4. Category-Level Interpretation and Locked Workflow
 
-In addition to aggregate metrics, we report per-category (`C1`-`C5`) breakdowns for ActionAcc, Coverage, AccAnswered, and TaskSuccess. This category view is required for interpretation because each category captures a distinct arbitration behavior: C5 should exhibit high abstention with high TaskSuccess, C3 should route predominantly to `trust_vision`, C4 should route predominantly to `trust_text`, and C2 should route to `require_agreement` while abstaining under disagreement.
+In addition to aggregate metrics, we report per-category (`C1`-`C5`) breakdowns for Coverage, AccAnswered, Accuracy, and TaskSuccess. This category view is required for interpretation because each category captures a distinct arbitration behavior: C2 and C5 should exhibit abstention-driven task success, C3 should reward vision-grounded correctness, C4 should reward text-grounded correctness, and C1 should reward either correct answering or safe abstention under disagreement.
 
-The baseline workflow proceeds in four locked stages. First, all baselines are run on `val` to produce per-example outputs and aggregate diagnostics. Second, only thresholded methods (primarily uncertainty-threshold abstain) are tuned on `val` under a pre-registered criterion such as maximizing TaskSuccess, minimizing AURC, or maximizing coverage under a fixed risk target. Third, all settings are frozen and a single final run is executed on `test` (`test_id`) with no additional tuning. Fourth, reporting includes a main table (ActionAcc, Coverage, AccAnswered, TaskSuccess, and Risk@target/AURC), risk-coverage plot(s), and C1-C5 breakdown tables.
+The baseline workflow proceeds in four locked stages. First, all baselines are run on `val` to produce per-example outputs and aggregate diagnostics. Second, only thresholded methods (`confidence_threshold` and `probe_heuristic`) are tuned on `val` under a pre-registered criterion such as maximizing TaskSuccess, minimizing AURC, or maximizing coverage under a fixed risk target. Third, all settings are frozen and a single final run is executed on `test` (`test_id`) with no additional tuning. Fourth, reporting includes a main table (Accuracy, Coverage, AccAnswered, TaskSuccess, and Risk@target/AURC), risk-coverage plot(s), and C1-C5 breakdown tables.

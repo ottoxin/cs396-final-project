@@ -18,7 +18,7 @@ from carm.eval.metrics import summarize_metrics
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Summarize baseline outputs into paper-ready tables.")
+    parser = argparse.ArgumentParser(description="Summarize flattened baseline outputs into report tables.")
     parser.add_argument("--baselines-root", required=True)
     parser.add_argument("--target-coverage", type=float, default=0.8)
     parser.add_argument(
@@ -66,19 +66,13 @@ def _risk_at_target(curve: list[dict[str, float]], target_coverage: float) -> fl
     return float(curve[-1].get("risk", 0.0))
 
 
-def _fmt(x: float) -> str:
+def _fmt(x: float | None) -> str:
+    if x is None:
+        return "n/a"
     return f"{x:.4f}"
 
 
-def _render_markdown(rows: list[dict[str, str]]) -> str:
-    header = [
-        "baseline",
-        "action_accuracy",
-        "task_success",
-        "coverage",
-        "risk_at_80_task_success",
-        "aurc_task_success",
-    ]
+def _render_markdown(rows: list[dict[str, str]], header: list[str]) -> str:
     lines = [
         "| " + " | ".join(header) + " |",
         "| " + " | ".join(["---"] * len(header)) + " |",
@@ -86,6 +80,10 @@ def _render_markdown(rows: list[dict[str, str]]) -> str:
     for row in rows:
         lines.append("| " + " | ".join(row[h] for h in header) + " |")
     return "\n".join(lines) + "\n"
+
+
+def _row_split(row: dict) -> str:
+    return str(row.get("split", ""))
 
 
 def main() -> None:
@@ -97,7 +95,8 @@ def main() -> None:
     if not baselines_root.exists():
         raise SystemExit(f"Baselines root does not exist: {baselines_root}")
 
-    rows_for_csv: list[dict[str, str]] = []
+    main_rows: list[dict[str, str]] = []
+    category_rows: list[dict[str, str]] = []
     curves_out: dict[str, list[dict[str, float]]] = {}
 
     baseline_dirs = sorted(
@@ -111,7 +110,7 @@ def main() -> None:
         preds_path = baseline_dir / "per_example_predictions.jsonl"
         records = _read_jsonl(preds_path)
         if split_filter is not None:
-            records = [r for r in records if str(r.get("split", "")) in split_filter]
+            records = [r for r in records if _row_split(r) in split_filter]
         if not records:
             continue
 
@@ -121,44 +120,72 @@ def main() -> None:
             curve = []
         curves_out[baseline_name] = curve
 
-        row = {
-            "baseline": baseline_name,
-            "action_accuracy": _fmt(float(metrics.get("action_accuracy", 0.0))),
-            "task_success": _fmt(float(metrics.get("task_success", 0.0))),
-            "coverage": _fmt(float(metrics.get("coverage", 0.0))),
-            "risk_at_80_task_success": _fmt(_risk_at_target(curve, target_coverage)),
-            "aurc_task_success": _fmt(_aurc(curve)),
-        }
-        rows_for_csv.append(row)
+        main_rows.append(
+            {
+                "baseline": baseline_name,
+                "task_success": _fmt(float(metrics.get("task_success", 0.0))),
+                "accuracy": _fmt(float(metrics.get("accuracy", 0.0))),
+                "coverage": _fmt(float(metrics.get("coverage", 0.0))),
+                "acc_on_answered": _fmt(float(metrics.get("accuracy_on_answered", 0.0))),
+                "risk@80_ts": _fmt(_risk_at_target(curve, target_coverage)),
+                "aurc_ts": _fmt(_aurc(curve)),
+            }
+        )
 
-    rows_for_csv.sort(key=lambda r: r["baseline"])
+        per_category = metrics.get("task_success_per_category", {})
+        if not isinstance(per_category, dict):
+            per_category = {}
+        category_rows.append(
+            {
+                "baseline": baseline_name,
+                "C1": _fmt(float(per_category.get("C1", 0.0))),
+                "C2": _fmt(float(per_category.get("C2", 0.0))),
+                "C3": _fmt(float(per_category.get("C3", 0.0))),
+                "C4": _fmt(float(per_category.get("C4", 0.0))),
+                "C5": _fmt(float(per_category.get("C5", 0.0))),
+            }
+        )
+
+    main_rows.sort(key=lambda r: r["baseline"])
+    category_rows.sort(key=lambda r: r["baseline"])
 
     report_dir = baselines_root / "report"
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    csv_path = report_dir / "baseline_table.csv"
-    md_path = report_dir / "baseline_table.md"
-    curves_path = report_dir / "risk_coverage_task_success_curves.json"
+    main_csv = report_dir / "main_table.csv"
+    main_md = report_dir / "main_table.md"
+    category_csv = report_dir / "per_category_task_success.csv"
+    category_md = report_dir / "per_category_task_success.md"
+    curves_json = report_dir / "risk_coverage_task_success_curves.json"
 
-    header = [
+    main_header = [
         "baseline",
-        "action_accuracy",
         "task_success",
+        "accuracy",
         "coverage",
-        "risk_at_80_task_success",
-        "aurc_task_success",
+        "acc_on_answered",
+        "risk@80_ts",
+        "aurc_ts",
     ]
-    with csv_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=header)
+    with main_csv.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=main_header)
         writer.writeheader()
-        writer.writerows(rows_for_csv)
+        writer.writerows(main_rows)
+    main_md.write_text(_render_markdown(main_rows, main_header), encoding="utf-8")
 
-    md_path.write_text(_render_markdown(rows_for_csv), encoding="utf-8")
-    curves_path.write_text(json.dumps(curves_out, indent=2), encoding="utf-8")
+    category_header = ["baseline", "C1", "C2", "C3", "C4", "C5"]
+    with category_csv.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=category_header)
+        writer.writeheader()
+        writer.writerows(category_rows)
+    category_md.write_text(_render_markdown(category_rows, category_header), encoding="utf-8")
+    curves_json.write_text(json.dumps(curves_out, indent=2), encoding="utf-8")
 
-    print(f"wrote {csv_path}")
-    print(f"wrote {md_path}")
-    print(f"wrote {curves_path}")
+    print(f"wrote {main_csv}")
+    print(f"wrote {main_md}")
+    print(f"wrote {category_csv}")
+    print(f"wrote {category_md}")
+    print(f"wrote {curves_json}")
 
 
 if __name__ == "__main__":

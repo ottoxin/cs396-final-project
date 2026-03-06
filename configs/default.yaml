@@ -89,6 +89,21 @@ backbone:
   cache_results: true
   hidden_size: 128
   seq_len: 32
+  max_new_tokens: 10
+  count_min: 0
+  count_max: 20
+  color_vocab:
+    - red
+    - blue
+    - green
+    - yellow
+    - black
+    - white
+    - brown
+    - gray
+    - orange
+    - pink
+    - purple
   registry:
     qwen2_5_vl_7b:
       model_name: Qwen/Qwen2.5-VL-7B-Instruct
@@ -104,24 +119,16 @@ training:
   device: cpu
 
 eval:
-  uncertainty_entropy_threshold: 1.9
+  confidence_threshold: 0.3
+  probe_both_uncertain_threshold: 2.0
   metrics:
-    - accuracy
     - task_success
+    - accuracy
     - coverage
-    - action_accuracy
-    - macro_f1_conflict
-    - risk_coverage
+    - accuracy_on_answered
     - risk_coverage_task_success
-    - task_success_per_split
     - task_success_per_category
-    - monotonicity_violation_rate
-    - ece
-    - brier
-  thresholds:
-    monotonicity_violation_rate_max: 0.15
-    ece_max: 0.12
-    brier_max: 0.25
+    - task_success_per_split
 
 runtime:
   device: cpu

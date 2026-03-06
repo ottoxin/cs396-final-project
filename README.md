@@ -13,11 +13,25 @@ Important count clarification:
 ## Setup
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-pip install datasets huggingface_hub
+/gpfs/software/bowtie2/2.5.4/bin/python3.12 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip setuptools wheel
+./.venv/bin/python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision
+./.venv/bin/python -m pip install --upgrade -e . pytest accelerate
 ```
+
+Quest GPU baseline bootstrap on the login node:
+
+```bash
+/gpfs/software/bowtie2/2.5.4/bin/python3.12 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip setuptools wheel
+./.venv/bin/python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision
+./.venv/bin/python -m pip install --upgrade -e . pytest accelerate
+```
+
+Why this interpreter path is explicit:
+- the default Quest `python3` on login and compute nodes is `3.6.8`
+- the project requires `>=3.10`
+- a venv built against `/usr/bin/python3.12` on a login shell will not run on compute nodes here
 
 ## HF-First Workflow
 
@@ -87,7 +101,7 @@ This writes:
 ## Repository Layout
 
 - `carm/`: package code used by all runtime CLIs (data, models, train, eval, utils).
-- `scripts/`: command-line entrypoints (prepare dataset, run baselines, train, evaluate).
+- `scripts/`: command-line entrypoints (prepare dataset, baselines, train, evaluate).
 - `configs/`: active runtime configs (`default.yaml`, `hf_5way_qwen.yaml`).
 - `tests/`: automated validation (`pytest`) for schema, mapping, policy, and integration.
 - `data/`: local sample + cache root for prepared HF artifacts.

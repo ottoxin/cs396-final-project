@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import unittest
 
+import torch
+
 from carm.models.backbone import BackboneConfig, Qwen25VLAdapter
 
 
@@ -12,11 +14,13 @@ from carm.models.backbone import BackboneConfig, Qwen25VLAdapter
 )
 class TestQwenInferenceOptIn(unittest.TestCase):
     def test_text_probe_runs_real_model_with_family_specific_parsing(self) -> None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = "bfloat16" if device == "cuda" and torch.cuda.is_bf16_supported() else "float32"
         adapter = Qwen25VLAdapter(
             model_name="Qwen/Qwen2.5-VL-7B-Instruct",
             config=BackboneConfig(hidden_size=128, seq_len=32),
-            device="cpu",
-            torch_dtype="float32",
+            device=device,
+            torch_dtype=dtype,
             cache_results=False,
         )
 

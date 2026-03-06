@@ -117,7 +117,7 @@ training:
   weight_decay: 0.01
   early_stop_metric: task_success
   patience: 2
-  device: cpu
+  device: auto
 
 loss:
   action: true

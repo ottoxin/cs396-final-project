@@ -15,6 +15,7 @@ from carm.models.registry import create_backbone
 from carm.train.losses import LossConfig
 from carm.train.trainer import CARMTrainer, TrainerConfig
 from carm.utils.config import load_yaml_config
+from carm.utils.device import resolve_carm_device
 from carm.utils.seed import set_global_seed
 
 
@@ -42,7 +43,7 @@ def _resolved_training_config(train_cfg: dict[str, object]) -> dict[str, object]
         "weight_decay": float(train_cfg.get("weight_decay", 0.01)),
         "early_stop_metric": str(train_cfg.get("early_stop_metric", "task_success")),
         "patience": int(train_cfg.get("patience", 2)),
-        "device": str(train_cfg.get("device", "cpu")),
+        "device": str(train_cfg.get("device", "auto")),
     }
 
 
@@ -73,6 +74,7 @@ def main() -> None:
     backbone = create_backbone(backbone_cfg)
     if getattr(backbone, "name", "") == "llava_next_8b":
         raise RuntimeError("llava_next_8b is not runnable yet for training. Use qwen2_5_vl_7b.")
+    resolved_device = resolve_carm_device(resolved_training["device"], backbone)
 
     trainer = CARMTrainer(
         model=model,
@@ -84,7 +86,7 @@ def main() -> None:
             weight_decay=float(resolved_training["weight_decay"]),
             early_stop_metric=str(resolved_training["early_stop_metric"]),
             patience=int(resolved_training["patience"]),
-            device=str(resolved_training["device"]),
+            device=resolved_device,
             loss=loss_cfg,
         ),
     )
@@ -99,7 +101,7 @@ def main() -> None:
     )
 
     resolved_cfg = dict(cfg)
-    resolved_cfg["training"] = resolved_training
+    resolved_cfg["training"] = {**resolved_training, "device": resolved_device}
     resolved_cfg["loss"] = loss_cfg.to_dict()
 
     ckpt = {

@@ -14,6 +14,7 @@ from carm.models.carm_model import CARMHeads, CARMModelConfig
 from carm.models.registry import create_backbone
 from carm.train.losses import LossConfig
 from carm.utils.config import load_yaml_config
+from carm.utils.device import resolve_carm_device
 
 
 def parse_args() -> argparse.Namespace:
@@ -108,11 +109,12 @@ def main() -> None:
     backbone = create_backbone(backbone_cfg)
     if getattr(backbone, "name", "") == "llava_next_8b":
         raise RuntimeError("llava_next_8b is not runnable yet for evaluation. Use qwen2_5_vl_7b.")
+    resolved_device = resolve_carm_device(train_cfg.get("device"), backbone)
 
     predictor = CARMPredictor(
         model=model,
         backbone=backbone,
-        device=str(train_cfg.get("device", "cpu")),
+        device=resolved_device,
         diagnostic_validity=_resolve_diagnostic_validity(cfg, ckpt),
     )
     metrics = evaluate_predictor(

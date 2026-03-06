@@ -18,23 +18,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build train-derived family vocab from prepared examples.")
     parser.add_argument("--input_jsonl", required=True)
     parser.add_argument("--output_json", required=True)
-    parser.add_argument(
-        "--split",
-        default=Split.TRAIN.value,
-        choices=[s.value for s in Split],
-        help="Examples from this split contribute to the vocab. Defaults to train.",
-    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     examples = load_examples(args.input_jsonl)
-    target_split = Split(args.split)
-    selected = [ex for ex in examples if ex.split == target_split]
+    selected = [ex for ex in examples if ex.split == Split.TRAIN]
     vocabs = build_family_vocabs(selected)
     save_family_vocabs(vocabs, args.output_json)
-    print(f"built family vocab from {len(selected)} {target_split.value} examples")
+    print(f"built family vocab from {len(selected)} {Split.TRAIN.value} examples")
     print(f"wrote {args.output_json}")
 
 

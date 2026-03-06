@@ -17,6 +17,7 @@ from carm.data.schema import Action, CorruptModality, Split
 from carm.eval.evaluator import CARMPredictor, evaluate_predictor
 from carm.models.carm_model import CARMHeads, CARMModelConfig
 from carm.train.losses import LossConfig, build_targets, multi_task_loss
+from carm.utils.device import resolve_carm_device
 from tests.dummy_backbone import DeterministicTestBackbone
 from tests.fixtures import make_base_examples
 
@@ -126,6 +127,23 @@ class TestTrainingLosses(unittest.TestCase):
         self.assertIsNotNone(grads[3])
 
 
+class TestDeviceResolution(unittest.TestCase):
+    class _BackboneWithDevice:
+        def __init__(self, device) -> None:
+            self.device = device
+
+    def test_explicit_training_device_overrides_backbone_device(self) -> None:
+        self.assertEqual(resolve_carm_device("cpu", self._BackboneWithDevice(torch.device("cuda"))), "cpu")
+        self.assertEqual(resolve_carm_device("cuda", self._BackboneWithDevice(torch.device("cpu"))), "cuda")
+
+    def test_auto_training_device_follows_backbone_device(self) -> None:
+        self.assertEqual(resolve_carm_device("auto", self._BackboneWithDevice(torch.device("cpu"))), "cpu")
+        self.assertEqual(resolve_carm_device(None, self._BackboneWithDevice("cuda")), "cuda")
+
+    def test_resolve_carm_device_falls_back_to_cpu_without_backbone_device(self) -> None:
+        self.assertEqual(resolve_carm_device("auto", object()), "cpu")
+
+
 class TestTrainingScripts(unittest.TestCase):
     def test_training_and_eval_scripts_write_best_checkpoint_and_null_aux_diagnostics(self) -> None:
         from scripts import evaluate_carm, train_carm
@@ -157,7 +175,7 @@ class TestTrainingScripts(unittest.TestCase):
                         "  weight_decay: 0.01",
                         "  early_stop_metric: task_success",
                         "  patience: 1",
-                        "  device: cpu",
+                        "  device: auto",
                         "loss:",
                         "  action: true",
                         "  conflict: false",
@@ -173,7 +191,9 @@ class TestTrainingScripts(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch.object(train_carm, "create_backbone", return_value=DeterministicTestBackbone()):
+            train_backbone = DeterministicTestBackbone()
+            train_backbone.device = torch.device("cpu")
+            with patch.object(train_carm, "create_backbone", return_value=train_backbone):
                 with patch.object(
                     sys,
                     "argv",
@@ -199,12 +219,16 @@ class TestTrainingScripts(unittest.TestCase):
             self.assertIn("task_success", best_metrics)
             self.assertIn("action_accuracy", best_metrics)
             self.assertIn("action_macro_f1", best_metrics)
+            resolved_cfg = json.loads((train_out / "resolved_config.json").read_text(encoding="utf-8"))
+            self.assertEqual(resolved_cfg["training"]["device"], "cpu")
 
             ckpt = torch.load(train_out / "carm_heads.pt", map_location="cpu")
             self.assertEqual(ckpt["enabled_losses"], {"action": True, "conflict": False, "reliability": False, "counterfactual": False})
             self.assertEqual(ckpt["diagnostic_validity"], {"conflict": False, "reliability": False})
 
-            with patch.object(evaluate_carm, "create_backbone", return_value=DeterministicTestBackbone()):
+            eval_backbone = DeterministicTestBackbone()
+            eval_backbone.device = torch.device("cpu")
+            with patch.object(evaluate_carm, "create_backbone", return_value=eval_backbone):
                 with patch.object(
                     sys,
                     "argv",

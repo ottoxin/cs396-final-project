@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import io
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from carm.data.answer_vocab import (
     build_family_vocabs,
@@ -12,6 +16,7 @@ from carm.data.answer_vocab import (
     parse_generated_answer,
     save_family_vocabs,
 )
+from carm.data.io import save_examples
 from carm.data.schema import (
     Action,
     AnswerType,
@@ -22,6 +27,7 @@ from carm.data.schema import (
     Operator,
     Split,
 )
+from scripts import build_train_family_vocab
 
 
 def _example(*, example_id: str, split: Split, family: Family, gold_answer: str) -> ConflictExample:
@@ -94,7 +100,7 @@ class TestAnswerVocab(unittest.TestCase):
 
         self.assertEqual(vocabs[Family.EXISTENCE], ("yes", "no", "unknown"))
         self.assertEqual(vocabs[Family.COUNT], ("1", "2", "unknown"))
-        self.assertEqual(vocabs[Family.ATTRIBUTE_COLOR], ("beige", "gray", "unknown"))
+        self.assertEqual(vocabs[Family.ATTRIBUTE_COLOR], ("beige", "gray", "red", "unknown"))
 
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "family_vocab.json"
@@ -102,6 +108,55 @@ class TestAnswerVocab(unittest.TestCase):
             loaded = load_family_vocabs(path)
 
         self.assertEqual(loaded, vocabs)
+
+    def test_build_train_family_vocab_script_filters_to_train_only(self) -> None:
+        examples = [
+            _example(example_id="c1", split=Split.TRAIN, family=Family.COUNT, gold_answer="two"),
+            _example(example_id="k1", split=Split.TRAIN, family=Family.ATTRIBUTE_COLOR, gold_answer="Grey"),
+            _example(example_id="heldout", split=Split.VAL, family=Family.ATTRIBUTE_COLOR, gold_answer="red"),
+        ]
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            input_jsonl = root / "examples.jsonl"
+            output_json = root / "family_vocab.json"
+            save_examples(input_jsonl, examples)
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "build_train_family_vocab.py",
+                    "--input_jsonl",
+                    str(input_jsonl),
+                    "--output_json",
+                    str(output_json),
+                ],
+            ):
+                with redirect_stdout(io.StringIO()):
+                    build_train_family_vocab.main()
+
+            loaded = load_family_vocabs(output_json)
+
+        self.assertEqual(loaded[Family.COUNT], ("2", "unknown"))
+        self.assertEqual(loaded[Family.ATTRIBUTE_COLOR], ("gray", "unknown"))
+
+    def test_build_train_family_vocab_rejects_removed_split_flag(self) -> None:
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "build_train_family_vocab.py",
+                "--input_jsonl",
+                "examples.jsonl",
+                "--output_json",
+                "family_vocab.json",
+                "--split",
+                "val",
+            ],
+        ):
+            with self.assertRaises(SystemExit):
+                build_train_family_vocab.parse_args()
 
 
 if __name__ == "__main__":

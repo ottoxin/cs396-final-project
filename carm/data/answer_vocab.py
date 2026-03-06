@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from carm.data.schema import ConflictExample, Family, Split
+from carm.data.schema import ConflictExample, Family
 
 
 DEFAULT_COLOR_VOCAB = (
@@ -249,7 +249,7 @@ def normalize_family_vocab(values: Iterable[str], family: Family) -> tuple[str, 
 
 
 def build_family_vocabs(examples: list[ConflictExample]) -> dict[Family, tuple[str, ...]]:
-    """Build train-only family vocabs from gold answers."""
+    """Build family vocabs from the examples provided."""
 
     observed: dict[Family, set[str]] = {
         Family.EXISTENCE: set(),
@@ -257,8 +257,6 @@ def build_family_vocabs(examples: list[ConflictExample]) -> dict[Family, tuple[s
         Family.ATTRIBUTE_COLOR: set(),
     }
     for ex in examples:
-        if ex.split != Split.TRAIN:
-            continue
         if ex.family not in observed:
             continue
         normalized = normalize_gold_answer(ex.gold_answer, ex.family)

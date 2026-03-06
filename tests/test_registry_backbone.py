@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
+import torch
+
+from carm.data.schema import Family
 from carm.models.backbone import Qwen25VLAdapter
 from carm.models.registry import create_backbone
 
@@ -54,6 +60,58 @@ class TestBackboneRegistry(unittest.TestCase):
         self.assertEqual(backbone.config.count_min, 2)
         self.assertEqual(backbone.config.count_max, 5)
         self.assertEqual(backbone.config.color_vocab, ("red", "gray"))
+
+    def test_create_qwen_backbone_loads_family_vocab_from_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "family_vocab.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "existence": ["yes", "no", "unknown"],
+                        "count": ["1", "4", "unknown"],
+                        "attribute_color": ["beige", "gray", "unknown"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            backbone = create_backbone(
+                {
+                    "name": "qwen2_5_vl_7b",
+                    "family_vocab_path": str(path),
+                    "force_fallback_distribution": True,
+                }
+            )
+
+        self.assertIsInstance(backbone, Qwen25VLAdapter)
+        self.assertEqual(backbone.config.family_vocab_overrides["count"], ("1", "4", "unknown"))
+        self.assertEqual(backbone.config.family_vocab_overrides["attribute_color"], ("beige", "gray", "unknown"))
+        self.assertTrue(backbone.config.force_fallback_distribution)
+        self.assertEqual(backbone._family_vocab(Family.COUNT), ("1", "4", "unknown"))
+
+    def test_inline_family_vocab_overrides_take_precedence(self) -> None:
+        backbone = create_backbone(
+            {
+                "name": "qwen2_5_vl_7b",
+                "family_vocab_overrides": {
+                    "count": ["2", "9", "unknown"],
+                },
+            }
+        )
+
+        self.assertEqual(backbone._family_vocab(Family.COUNT), ("2", "9", "unknown"))
+
+    def test_force_fallback_distribution_bypasses_projection(self) -> None:
+        backbone = create_backbone(
+            {
+                "name": "qwen2_5_vl_7b",
+                "force_fallback_distribution": True,
+            }
+        )
+
+        dist = backbone._distribution_from_first_token_logits(torch.randn(32), Family.EXISTENCE)
+
+        self.assertIsNone(dist)
 
     def test_family_vocab_token_ids_use_direct_last_token_when_unique(self) -> None:
         class _FakeTokenizer:

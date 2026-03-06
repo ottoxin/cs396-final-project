@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+from carm.data.answer_vocab import family_vocab_jsonable, load_family_vocabs
 from carm.models.backbone import BackboneConfig, LlavaNextAdapter, Qwen25VLAdapter
 
 
@@ -19,6 +21,23 @@ def _resolve_model_name(backbone_cfg: dict[str, Any], key: str, default_name: st
     return default_name
 
 
+def _resolve_family_vocab_overrides(backbone_cfg: dict[str, Any]) -> dict[str, list[str]] | None:
+    resolved: dict[str, list[str]] = {}
+
+    vocab_path = backbone_cfg.get("family_vocab_path")
+    if isinstance(vocab_path, str) and vocab_path.strip():
+        loaded = load_family_vocabs(Path(vocab_path))
+        resolved.update(family_vocab_jsonable(loaded))
+
+    inline = backbone_cfg.get("family_vocab_overrides")
+    if isinstance(inline, dict):
+        for family, values in inline.items():
+            if isinstance(values, list):
+                resolved[str(family).lower()] = [str(v) for v in values]
+
+    return resolved or None
+
+
 def create_backbone(backbone_cfg: dict[str, Any]):
     name = str(backbone_cfg.get("name", "qwen2_5_vl_7b"))
 
@@ -29,6 +48,8 @@ def create_backbone(backbone_cfg: dict[str, Any]):
         count_min=int(backbone_cfg.get("count_min", 0)),
         count_max=int(backbone_cfg.get("count_max", 20)),
         color_vocab=tuple(backbone_cfg.get("color_vocab", ())),
+        family_vocab_overrides=_resolve_family_vocab_overrides(backbone_cfg),
+        force_fallback_distribution=bool(backbone_cfg.get("force_fallback_distribution", False)),
     )
 
     if name == "qwen2_5_vl_7b":

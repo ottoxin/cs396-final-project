@@ -29,6 +29,7 @@ class TestQwenInferenceOptIn(unittest.TestCase):
             question="Is there a bicycle in the image?",
         )
         self.assertIn(existence.answer_text, {"yes", "no", "unknown"})
+        self.assertTrue(existence.raw_text)
         self.assertGreater(existence.answer_dist.numel(), 0)
         self.assertEqual(tuple(existence.features.shape), (3,))
 
@@ -37,6 +38,7 @@ class TestQwenInferenceOptIn(unittest.TestCase):
             question="How many dogs are there?",
         )
         self.assertRegex(count.answer_text, r"^(unknown|\d+)$")
+        self.assertTrue(count.raw_text)
         self.assertGreater(count.answer_dist.numel(), 0)
         self.assertEqual(tuple(count.features.shape), (3,))
 
@@ -46,6 +48,7 @@ class TestQwenInferenceOptIn(unittest.TestCase):
         )
         valid_colors = set(adapter.config.color_vocab) | {"unknown"}
         self.assertIn(color.answer_text, valid_colors)
+        self.assertTrue(color.raw_text)
         self.assertGreater(color.answer_dist.numel(), 0)
         self.assertEqual(tuple(color.features.shape), (3,))
 

@@ -4,43 +4,16 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from carm.data.answer_vocab import COLOR_ALIASES, COUNT_WORDS, DEFAULT_COLOR_VOCAB, NO_ALIASES, YES_ALIASES
 from carm.data.schema import AnswerType
 
 
 YES_NO_MAP = {
-    "y": "yes",
+    **{value: "yes" for value in YES_ALIASES},
     "yeah": "yes",
     "yep": "yes",
-    "true": "yes",
-    "1": "yes",
-    "n": "no",
+    **{value: "no" for value in NO_ALIASES},
     "nope": "no",
-    "false": "no",
-    "0": "no",
-}
-
-COUNT_WORDS = {
-    "zero": 0,
-    "one": 1,
-    "two": 2,
-    "three": 3,
-    "four": 4,
-    "five": 5,
-    "six": 6,
-    "seven": 7,
-    "eight": 8,
-    "nine": 9,
-    "ten": 10,
-    "eleven": 11,
-    "twelve": 12,
-    "thirteen": 13,
-    "fourteen": 14,
-    "fifteen": 15,
-    "sixteen": 16,
-    "seventeen": 17,
-    "eighteen": 18,
-    "nineteen": 19,
-    "twenty": 20,
 }
 
 
@@ -50,28 +23,16 @@ class CanonicalizationConfig:
     count_min: int = 0
     count_max: int = 20
     color_vocab: set[str] = field(
-        default_factory=lambda: {
-            "red",
-            "blue",
-            "green",
-            "yellow",
-            "black",
-            "white",
-            "brown",
-            "gray",
-            "orange",
-            "pink",
-            "purple",
-        }
+        default_factory=lambda: set(DEFAULT_COLOR_VOCAB)
     )
     color_synonyms: dict[str, str] = field(
         default_factory=lambda: {
-            "grey": "gray",
-            "violet": "purple",
+            **COLOR_ALIASES,
             "gold": "yellow",
             "silver": "gray",
         }
     )
+    family_vocab_overrides: dict[str, set[str]] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any] | None) -> "CanonicalizationConfig":
@@ -97,6 +58,14 @@ class CanonicalizationConfig:
         color_synonyms = raw.get("color_synonyms")
         if isinstance(color_synonyms, dict):
             cfg.color_synonyms.update({str(k).lower(): str(v).lower() for k, v in color_synonyms.items()})
+
+        family_vocab_overrides = raw.get("family_vocab_overrides")
+        if isinstance(family_vocab_overrides, dict):
+            cfg.family_vocab_overrides = {
+                str(family).lower(): {str(value).lower() for value in values if str(value).strip() and str(value).lower() != "unknown"}
+                for family, values in family_vocab_overrides.items()
+                if isinstance(values, list)
+            }
 
         return cfg
 
@@ -142,34 +111,44 @@ def _canonicalize_count(norm: str, cfg: CanonicalizationConfig) -> str | None:
 
     if norm in COUNT_WORDS:
         val = COUNT_WORDS[norm]
+        canonical = str(val)
+        if "count" in cfg.family_vocab_overrides:
+            return canonical if canonical in cfg.family_vocab_overrides["count"] else None
         if cfg.count_min <= val <= cfg.count_max:
             return str(val)
     for part in norm.split():
         if part in COUNT_WORDS:
             val = COUNT_WORDS[part]
+            canonical = str(val)
+            if "count" in cfg.family_vocab_overrides:
+                return canonical if canonical in cfg.family_vocab_overrides["count"] else None
             if cfg.count_min <= val <= cfg.count_max:
                 return str(val)
 
     m = re.search(r"\d+", norm)
     if m is not None:
         val = int(m.group(0))
+        canonical = str(val)
+        if "count" in cfg.family_vocab_overrides:
+            return canonical if canonical in cfg.family_vocab_overrides["count"] else None
         if cfg.count_min <= val <= cfg.count_max:
-            return str(val)
+            return canonical
     return None
 
 
 def _canonicalize_color(norm: str, cfg: CanonicalizationConfig) -> str | None:
     if not norm:
         return None
+    active_color_vocab = cfg.family_vocab_overrides.get("attribute_color", cfg.color_vocab)
     candidate = cfg.color_synonyms.get(norm, norm)
-    if candidate in cfg.color_vocab:
+    if candidate in active_color_vocab:
         return candidate
 
     parts = norm.split()
     if len(parts) > 1:
         for part in parts:
             part_c = cfg.color_synonyms.get(part, part)
-            if part_c in cfg.color_vocab:
+            if part_c in active_color_vocab:
                 return part_c
     return None
 

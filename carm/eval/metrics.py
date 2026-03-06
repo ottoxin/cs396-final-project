@@ -6,6 +6,14 @@ from typing import Any
 import numpy as np
 
 
+ACTION_LABELS = (
+    "trust_vision",
+    "trust_text",
+    "require_agreement",
+    "abstain",
+)
+
+
 def _as_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -63,6 +71,10 @@ def _prediction_value(row: dict[str, Any], key: str, default: Any = None) -> Any
     return default
 
 
+def _flag_value(row: dict[str, Any], key: str) -> bool:
+    return _as_bool(_prediction_value(row, key, row.get(key, False)))
+
+
 def _correct_value(row: dict[str, Any]) -> bool:
     if "correct" in row:
         return _as_bool(row.get("correct"))
@@ -96,6 +108,22 @@ def _protocol_category_value(row: dict[str, Any]) -> str:
     if isinstance(metadata, dict):
         return str(metadata.get("protocol_category", "")).strip()
     return ""
+
+
+def _final_answer_value(row: dict[str, Any]) -> str:
+    return str(_prediction_value(row, "final_answer", row.get("final_answer", ""))).strip().lower()
+
+
+def _action_pairs(records: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    valid = set(ACTION_LABELS)
+    for row in records:
+        oracle = str(_target_value(row, "oracle_action", "")).strip().lower()
+        pred = _prediction_value(row, "pred_action", None)
+        pred_text = str(pred).strip().lower() if pred is not None else ""
+        if oracle in valid and pred_text in valid:
+            pairs.append((oracle, pred_text))
+    return pairs
 
 
 def task_success_from_components(
@@ -172,6 +200,28 @@ def accuracy_on_answered(records: list[dict[str, Any]]) -> float:
     return float(np.mean([1.0 if _correct_value(r) else 0.0 for r in answered]))
 
 
+def action_accuracy(records: list[dict[str, Any]]) -> float | None:
+    pairs = _action_pairs(records)
+    if not pairs:
+        return None
+    return float(np.mean([1.0 if oracle == pred else 0.0 for oracle, pred in pairs]))
+
+
+def action_macro_f1(records: list[dict[str, Any]]) -> float | None:
+    pairs = _action_pairs(records)
+    if not pairs:
+        return None
+
+    scores: list[float] = []
+    for label in ACTION_LABELS:
+        tp = sum(1 for oracle, pred in pairs if oracle == label and pred == label)
+        fp = sum(1 for oracle, pred in pairs if oracle != label and pred == label)
+        fn = sum(1 for oracle, pred in pairs if oracle == label and pred != label)
+        denom = (2 * tp) + fp + fn
+        scores.append(0.0 if denom == 0 else (2.0 * tp) / denom)
+    return float(np.mean(scores))
+
+
 def _task_success_with_threshold(row: dict[str, Any], threshold: float) -> bool:
     effective_abstained = _abstained_value(row) or (_confidence_value(row) < threshold)
     pred_action = _prediction_value(row, "pred_action", None)
@@ -219,6 +269,18 @@ def _mean_task_success(records: list[dict[str, Any]]) -> float:
     return float(np.mean([1.0 if task_success_single(r) else 0.0 for r in records]))
 
 
+def _flag_rate(records: list[dict[str, Any]], key: str) -> float:
+    if not records:
+        return 0.0
+    return float(np.mean([1.0 if _flag_value(r, key) else 0.0 for r in records]))
+
+
+def _final_unknown_rate(records: list[dict[str, Any]]) -> float:
+    if not records:
+        return 0.0
+    return float(np.mean([1.0 if _final_answer_value(r) == "unknown" else 0.0 for r in records]))
+
+
 def _ordered_group_items(groups: dict[str, list[dict[str, Any]]], preferred: list[str]) -> list[tuple[str, list[dict[str, Any]]]]:
     ordered: list[tuple[str, list[dict[str, Any]]]] = []
     seen: set[str] = set()
@@ -256,6 +318,30 @@ def _per_category_accuracy(records: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
+def _per_category_flag_rate(records: list[dict[str, Any]], key: str) -> dict[str, float]:
+    by_category: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in records:
+        category = _protocol_category_value(row)
+        if category:
+            by_category[category].append(row)
+    return {
+        group: _flag_rate(rows, key)
+        for group, rows in _ordered_group_items(by_category, ["C1", "C2", "C3", "C4", "C5"])
+    }
+
+
+def _per_category_final_unknown_rate(records: list[dict[str, Any]]) -> dict[str, float]:
+    by_category: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in records:
+        category = _protocol_category_value(row)
+        if category:
+            by_category[category].append(row)
+    return {
+        group: _final_unknown_rate(rows)
+        for group, rows in _ordered_group_items(by_category, ["C1", "C2", "C3", "C4", "C5"])
+    }
+
+
 def _per_split_task_success(records: list[dict[str, Any]]) -> dict[str, float]:
     by_split: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in records:
@@ -283,12 +369,28 @@ def _counts_by(records: list[dict[str, Any]], value_fn) -> dict[str, int]:
 def summarize_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "task_success": task_success_rate(records),
+        "action_accuracy": action_accuracy(records),
+        "action_macro_f1": action_macro_f1(records),
         "accuracy": accuracy(records),
         "coverage": coverage(records),
         "accuracy_on_answered": accuracy_on_answered(records),
         "task_success_per_category": _per_category_task_success(records),
         "task_success_per_split": _per_split_task_success(records),
         "accuracy_per_category": _per_category_accuracy(records),
+        "projection_success_rate": _flag_rate(records, "projection_succeeded"),
+        "projection_success_rate_per_category": _per_category_flag_rate(records, "projection_succeeded"),
+        "fallback_rate": _flag_rate(records, "used_fallback_dist"),
+        "fallback_rate_per_category": _per_category_flag_rate(records, "used_fallback_dist"),
+        "parsed_unknown_rate": _flag_rate(records, "parsed_unknown"),
+        "parsed_unknown_rate_per_category": _per_category_flag_rate(records, "parsed_unknown"),
+        "parsed_in_active_vocab_rate": _flag_rate(records, "parsed_in_active_vocab"),
+        "parsed_in_active_vocab_rate_per_category": _per_category_flag_rate(records, "parsed_in_active_vocab"),
+        "out_of_vocab_generation_rate": _flag_rate(records, "out_of_vocab_generation"),
+        "out_of_vocab_generation_rate_per_category": _per_category_flag_rate(records, "out_of_vocab_generation"),
+        "parsed_argmax_agreement_rate": _flag_rate(records, "parsed_argmax_agree"),
+        "parsed_argmax_agreement_rate_per_category": _per_category_flag_rate(records, "parsed_argmax_agree"),
+        "final_unknown_rate": _final_unknown_rate(records),
+        "final_unknown_rate_per_category": _per_category_final_unknown_rate(records),
         "risk_coverage_task_success": risk_coverage_curve_task_success(records),
         "example_counts_by_split": _counts_by(records, lambda row: _example_value(row, "split", "")),
         "example_counts_by_category": _counts_by(records, _protocol_category_value),

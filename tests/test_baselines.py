@@ -30,17 +30,23 @@ class _ControlledBackbone:
         self,
         *,
         mm_answer: str = "yes",
+        mm_raw: str | None = None,
         mm_dist: torch.Tensor | None = None,
         vision_answer: str = "yes",
+        vision_raw: str | None = None,
         vision_dist: torch.Tensor | None = None,
         text_answer: str = "yes",
+        text_raw: str | None = None,
         text_dist: torch.Tensor | None = None,
     ) -> None:
         self.mm_answer = mm_answer
+        self.mm_raw = mm_raw if mm_raw is not None else f"raw::{mm_answer}"
         self.mm_dist = mm_dist if mm_dist is not None else torch.tensor([0.9, 0.1], dtype=torch.float32)
         self.vision_answer = vision_answer
+        self.vision_raw = vision_raw if vision_raw is not None else f"raw::{vision_answer}"
         self.vision_dist = vision_dist if vision_dist is not None else torch.tensor([0.9, 0.1], dtype=torch.float32)
         self.text_answer = text_answer
+        self.text_raw = text_raw if text_raw is not None else f"raw::{text_answer}"
         self.text_dist = text_dist if text_dist is not None else torch.tensor([0.9, 0.1], dtype=torch.float32)
 
     def run_backbone_multimodal(self, image: str, text: str, question: str) -> BackboneResult:
@@ -48,6 +54,7 @@ class _ControlledBackbone:
             hidden_states=torch.zeros(2, 3),
             answer_dist=self.mm_dist,
             answer_text=self.mm_answer,
+            raw_text=self.mm_raw,
         )
 
     def run_probe_vision_only(self, image: str, question: str) -> ProbeResult:
@@ -55,6 +62,7 @@ class _ControlledBackbone:
             answer_dist=self.vision_dist,
             answer_text=self.vision_answer,
             features=torch.zeros(3),
+            raw_text=self.vision_raw,
         )
 
     def run_probe_text_only(self, text: str, question: str) -> ProbeResult:
@@ -62,6 +70,7 @@ class _ControlledBackbone:
             answer_dist=self.text_dist,
             answer_text=self.text_answer,
             features=torch.zeros(3),
+            raw_text=self.text_raw,
         )
 
 
@@ -97,6 +106,7 @@ class TestBaselines(unittest.TestCase):
         self.assertEqual(pred.final_answer, "blue")
         self.assertFalse(pred.abstained)
         self.assertAlmostEqual(pred.confidence, 0.8, places=6)
+        self.assertEqual(pred.raw_text, "raw::blue")
 
     def test_agreement_check_returns_agreed_answer(self) -> None:
         baseline = AgreementCheckBaseline(
@@ -113,6 +123,9 @@ class TestBaselines(unittest.TestCase):
         self.assertEqual(pred.final_answer, "yes")
         self.assertFalse(pred.abstained)
         self.assertAlmostEqual(pred.confidence, 0.7, places=6)
+        self.assertEqual(pred.raw_text, "raw::yes")
+        self.assertEqual(pred.metadata["vision_raw_output"], "raw::yes")
+        self.assertEqual(pred.metadata["text_raw_output"], "raw::true")
 
     def test_agreement_check_abstains_on_disagreement(self) -> None:
         baseline = AgreementCheckBaseline(
@@ -129,6 +142,8 @@ class TestBaselines(unittest.TestCase):
         self.assertEqual(pred.final_answer, "<ABSTAIN>")
         self.assertTrue(pred.abstained)
         self.assertLess(pred.confidence, 0.5)
+        self.assertEqual(pred.metadata["vision_raw_output"], "raw::yes")
+        self.assertEqual(pred.metadata["text_raw_output"], "raw::no")
 
     def test_confidence_threshold_abstains_when_inverse_entropy_is_low(self) -> None:
         baseline = ConfidenceThresholdBaseline(
@@ -141,6 +156,7 @@ class TestBaselines(unittest.TestCase):
         self.assertEqual(pred.final_answer, "<ABSTAIN>")
         self.assertTrue(pred.abstained)
         self.assertAlmostEqual(pred.confidence, 0.0, places=6)
+        self.assertEqual(pred.raw_text, "raw::yes")
 
     def test_probe_heuristic_routes_to_lower_entropy_probe(self) -> None:
         baseline = ProbeHeuristicBaseline(
@@ -158,6 +174,9 @@ class TestBaselines(unittest.TestCase):
         self.assertEqual(pred.final_answer, "2")
         self.assertFalse(pred.abstained)
         self.assertAlmostEqual(pred.confidence, 0.95, places=6)
+        self.assertEqual(pred.raw_text, "raw::2")
+        self.assertEqual(pred.metadata["vision_raw_output"], "raw::2")
+        self.assertEqual(pred.metadata["text_raw_output"], "raw::3")
 
     def test_probe_heuristic_abstains_when_both_probes_are_uncertain(self) -> None:
         baseline = ProbeHeuristicBaseline(
@@ -175,6 +194,9 @@ class TestBaselines(unittest.TestCase):
         self.assertEqual(pred.final_answer, "<ABSTAIN>")
         self.assertTrue(pred.abstained)
         self.assertAlmostEqual(pred.confidence, 0.34, places=6)
+        self.assertEqual(pred.raw_text, "raw::2")
+        self.assertEqual(pred.metadata["vision_raw_output"], "raw::2")
+        self.assertEqual(pred.metadata["text_raw_output"], "raw::3")
 
 
 if __name__ == "__main__":

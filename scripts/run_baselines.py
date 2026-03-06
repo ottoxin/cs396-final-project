@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from carm.data.answer_vocab import canonicalization_mapping_from_family_vocabs, load_family_vocabs
 from carm.data.io import load_examples
 from carm.data.schema import ConflictExample, Split
 from carm.eval.baselines import (
@@ -171,6 +172,14 @@ def _prune_summary(summary: dict[str, dict], active_names: set[str]) -> tuple[di
     return pruned, stale
 
 
+def _resolve_answer_canonicalization(eval_cfg: dict[str, object], backbone_cfg: dict[str, object]) -> dict[str, object]:
+    resolved = dict(eval_cfg.get("answer_canonicalization", {}) or {})
+    vocab_path = backbone_cfg.get("family_vocab_path")
+    if isinstance(vocab_path, str) and vocab_path.strip():
+        resolved.update(canonicalization_mapping_from_family_vocabs(load_family_vocabs(vocab_path)))
+    return resolved
+
+
 def main() -> None:
     run_start = time.monotonic()
     args = parse_args()
@@ -197,6 +206,7 @@ def main() -> None:
 
     backbone = create_backbone(cfg.get("backbone", {}))
     eval_cfg = cfg.get("eval", {})
+    canonicalization_cfg = _resolve_answer_canonicalization(cfg.get("eval", {}), cfg.get("backbone", {}))
 
     baselines = [
         BackboneDirectBaseline(backbone),
@@ -239,7 +249,7 @@ def main() -> None:
             progress_every=int(args.progress_every),
             log_fn=log,
             semantic_match_threshold=float(eval_cfg.get("semantic_match_threshold", 0.82)),
-            canonicalization_cfg=eval_cfg.get("answer_canonicalization", {}),
+            canonicalization_cfg=canonicalization_cfg,
             include_heuristic_calibration=bool(args.report_calibration_heuristic),
         )
         summary[baseline.name] = results

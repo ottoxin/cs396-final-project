@@ -6,11 +6,13 @@ import json
 
 import torch
 
+from carm.data.answer_vocab import canonicalization_mapping_from_family_vocabs, load_family_vocabs
 from carm.data.io import load_examples
 from carm.data.schema import Split
 from carm.eval.evaluator import CARMPredictor, evaluate_predictor
 from carm.models.carm_model import CARMHeads, CARMModelConfig
 from carm.models.registry import create_backbone
+from carm.train.losses import LossConfig
 from carm.utils.config import load_yaml_config
 
 
@@ -35,6 +37,45 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_answer_canonicalization(eval_cfg: dict[str, object], backbone_cfg: dict[str, object]) -> dict[str, object]:
+    resolved = dict(eval_cfg.get("answer_canonicalization", {}) or {})
+    vocab_path = backbone_cfg.get("family_vocab_path")
+    if isinstance(vocab_path, str) and vocab_path.strip():
+        resolved.update(canonicalization_mapping_from_family_vocabs(load_family_vocabs(vocab_path)))
+    return resolved
+
+
+def _resolve_diagnostic_validity(
+    cfg: dict[str, object],
+    ckpt: dict[str, object] | None,
+) -> dict[str, bool]:
+    source_cfg = cfg
+    if ckpt is not None:
+        raw_validity = ckpt.get("diagnostic_validity")
+        if isinstance(raw_validity, dict):
+            return {
+                "conflict": bool(raw_validity.get("conflict", True)),
+                "reliability": bool(raw_validity.get("reliability", True)),
+            }
+
+        enabled_losses = ckpt.get("enabled_losses")
+        if isinstance(enabled_losses, dict):
+            return {
+                "conflict": bool(enabled_losses.get("conflict", False)),
+                "reliability": bool(
+                    enabled_losses.get("reliability", False)
+                    or enabled_losses.get("counterfactual", False)
+                ),
+            }
+
+        ckpt_cfg = ckpt.get("config")
+        if isinstance(ckpt_cfg, dict):
+            source_cfg = ckpt_cfg
+
+    loss_cfg = LossConfig.from_mapping(source_cfg.get("loss"), legacy_training=source_cfg.get("training", {}))
+    return loss_cfg.diagnostic_validity()
+
+
 def main() -> None:
     args = parse_args()
     cfg = load_yaml_config(args.config)
@@ -48,6 +89,7 @@ def main() -> None:
     backbone_cfg = cfg.get("backbone", {})
     train_cfg = cfg.get("training", {})
     eval_cfg = cfg.get("eval", {})
+    canonicalization_cfg = _resolve_answer_canonicalization(eval_cfg, backbone_cfg)
 
     model = CARMHeads(
         CARMModelConfig(
@@ -57,6 +99,7 @@ def main() -> None:
         )
     )
 
+    ckpt: dict[str, object] | None = None
     if args.model_ckpt:
         ckpt = torch.load(args.model_ckpt, map_location="cpu")
         state = ckpt.get("model_state_dict", {})
@@ -66,7 +109,12 @@ def main() -> None:
     if getattr(backbone, "name", "") == "llava_next_8b":
         raise RuntimeError("llava_next_8b is not runnable yet for evaluation. Use qwen2_5_vl_7b.")
 
-    predictor = CARMPredictor(model=model, backbone=backbone, device=str(train_cfg.get("device", "cpu")))
+    predictor = CARMPredictor(
+        model=model,
+        backbone=backbone,
+        device=str(train_cfg.get("device", "cpu")),
+        diagnostic_validity=_resolve_diagnostic_validity(cfg, ckpt),
+    )
     metrics = evaluate_predictor(
         predictor,
         examples,
@@ -74,7 +122,7 @@ def main() -> None:
         track=args.track,
         schema_version=args.schema_version,
         semantic_match_threshold=float(eval_cfg.get("semantic_match_threshold", 0.82)),
-        canonicalization_cfg=eval_cfg.get("answer_canonicalization", {}),
+        canonicalization_cfg=canonicalization_cfg,
         include_heuristic_calibration=bool(args.report_calibration_heuristic),
     )
 

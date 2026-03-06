@@ -36,29 +36,51 @@ class DeterministicTestBackbone:
     def _decode(self, dist: torch.Tensor) -> str:
         return self.config.vocab[int(torch.argmax(dist).item())]
 
+    @staticmethod
+    def _metadata(answer: str) -> dict[str, object]:
+        return {
+            "projection_succeeded": True,
+            "used_fallback_dist": False,
+            "parsed_unknown": answer == "unknown",
+            "parsed_in_active_vocab": answer != "unknown",
+            "canonicalized_candidate": None if answer == "unknown" else answer,
+            "out_of_vocab_generation": False,
+            "dist_argmax_label": answer,
+            "parsed_argmax_agree": True,
+        }
+
     def run_backbone_multimodal(self, image: str, text: str, question: str) -> BackboneResult:
         payload = f"mm::{image}::{text}::{question}"
         dist = self._sample_distribution(payload)
+        answer = self._decode(dist)
         return BackboneResult(
             hidden_states=self._hidden_states(payload),
             answer_dist=dist,
-            answer_text=self._decode(dist),
+            answer_text=answer,
+            raw_text=f"raw::{answer}",
+            metadata=self._metadata(answer),
         )
 
     def run_probe_vision_only(self, image: str, question: str) -> ProbeResult:
         payload = f"v::{image}::{question}"
         dist = self._sample_distribution(payload)
+        answer = self._decode(dist)
         return ProbeResult(
             answer_dist=dist,
-            answer_text=self._decode(dist),
+            answer_text=answer,
             features=extract_probe_features(dist),
+            raw_text=f"raw::{answer}",
+            metadata=self._metadata(answer),
         )
 
     def run_probe_text_only(self, text: str, question: str) -> ProbeResult:
         payload = f"t::{text}::{question}"
         dist = self._sample_distribution(payload)
+        answer = self._decode(dist)
         return ProbeResult(
             answer_dist=dist,
-            answer_text=self._decode(dist),
+            answer_text=answer,
             features=extract_probe_features(dist),
+            raw_text=f"raw::{answer}",
+            metadata=self._metadata(answer),
         )

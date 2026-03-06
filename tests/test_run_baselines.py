@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_baselines import _prune_summary, _resolve_example_image_paths
+from scripts.run_baselines import _prune_summary, _resolve_answer_canonicalization, _resolve_example_image_paths
 from tests.fixtures import make_base_examples
 
 
@@ -52,6 +53,25 @@ class TestRunBaselines(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("Missing image_path", msg)
         self.assertIn(ex.example_id, msg)
+
+    def test_resolve_answer_canonicalization_loads_family_vocab_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            vocab_path = Path(td) / "family_vocab.json"
+            vocab_path.write_text(
+                json.dumps(
+                    {
+                        "existence": ["yes", "no", "unknown"],
+                        "count": ["1", "4", "unknown"],
+                        "attribute_color": ["beige", "gray", "unknown"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            resolved = _resolve_answer_canonicalization({}, {"family_vocab_path": str(vocab_path)})
+
+        self.assertEqual(resolved["family_vocab_overrides"]["count"], ["1", "4", "unknown"])
+        self.assertEqual(resolved["color_vocab"], ["beige", "gray"])
 
 
 if __name__ == "__main__":

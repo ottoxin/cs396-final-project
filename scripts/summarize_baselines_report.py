@@ -127,6 +127,10 @@ def main() -> None:
                 "accuracy": _fmt(float(metrics.get("accuracy", 0.0))),
                 "coverage": _fmt(float(metrics.get("coverage", 0.0))),
                 "acc_on_answered": _fmt(float(metrics.get("accuracy_on_answered", 0.0))),
+                "final_unknown": _fmt(float(metrics.get("final_unknown_rate", 0.0))),
+                "fallback": _fmt(float(metrics.get("fallback_rate", 0.0))),
+                "oov_gen": _fmt(float(metrics.get("out_of_vocab_generation_rate", 0.0))),
+                "parsed_argmax": _fmt(float(metrics.get("parsed_argmax_agreement_rate", 0.0))),
                 "risk@80_ts": _fmt(_risk_at_target(curve, target_coverage)),
                 "aurc_ts": _fmt(_aurc(curve)),
             }
@@ -164,6 +168,10 @@ def main() -> None:
         "accuracy",
         "coverage",
         "acc_on_answered",
+        "final_unknown",
+        "fallback",
+        "oov_gen",
+        "parsed_argmax",
         "risk@80_ts",
         "aurc_ts",
     ]

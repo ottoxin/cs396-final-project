@@ -21,6 +21,36 @@ The project objective is to train CARM to choose among four entropy-conditioned 
 
 For planning and release accounting, we distinguish the nominal balanced target from the realized public dataset. The nominal refined target is `45,000` examples under equal family-category balancing, while the current HF release used by the active workflow contains `44,982` rows (`nbso/carm-vqa-5way`) after realized filtering and moderation outcomes. Detailed category definitions, balancing tables, split-allocation arithmetic, and caption-edit workload accounting are moved to Appendix A6.
 
+### Training Objective
+
+We train CARM as a lightweight four-way policy learner on top of a frozen multimodal backbone. For each image-caption-question triple, the backbone provides pooled multimodal hidden states, and unimodal probe passes over the vision and text channels produce family-specific answer distributions. We summarize these unimodal distributions using compact uncertainty features, including entropy and top-1 margin, and combine them with the pooled backbone representation as input to CARM. The module outputs a distribution over four actions: `trust_vision`, `trust_text`, `require_agreement`, and `abstain`.
+
+The primary supervision signal is the oracle action implied by the benchmark construction protocol. Let $a_i^*$ denote the oracle action for example $i$, and let $p_\theta(a \mid x_i)$ denote the action distribution predicted by CARM for input $x_i$. We train the main model with standard cross-entropy:
+
+$$
+\mathcal{L}_{\text{action}}
+=
+-\frac{1}{N}\sum_{i=1}^{N}\log p_\theta(a_i^* \mid x_i).
+$$
+
+This objective is aligned with the role of CARM at inference time. Rather than predicting the final answer token directly, CARM is trained to choose the correct arbitration rule for combining, selecting, or rejecting modality-specific evidence.
+
+The action `require_agreement` is treated as a distinct policy label during training. At inference time, this action induces a conditional rule: the system returns an answer only when the vision-only and text-only probes agree under family-specific normalization; otherwise, it abstains. This allows the model to distinguish cases in which agreement between modalities is itself the criterion for answering from cases in which one modality should be trusted directly or the system should abstain outright.
+
+We freeze the backbone throughout training in order to isolate the contribution of the arbitration layer. This design keeps the learning problem focused on modality selection under conflict, rather than broad end-to-end adaptation of the underlying VLM. We optimize the trainable heads with Adam-style updates and use held-out decision quality, especially validation task success, as the primary model-selection criterion. Alongside task success, we report action accuracy, macro-F1, and selective-prediction metrics as secondary diagnostics.
+
+In multi-head variants, we also study auxiliary supervision for intermediate structure, such as conflict type or modality reliability. In those variants, the total objective is
+
+$$
+\mathcal{L}
+=
+\mathcal{L}_{\text{action}}
++ \lambda_{\text{conf}}\mathcal{L}_{\text{conf}}
++ \lambda_{\text{rel}}\mathcal{L}_{\text{rel}}.
+$$
+
+Here $\lambda_{\text{conf}}$ and $\lambda_{\text{rel}}$ are tuned on the validation set. We treat these auxiliary losses as optional regularizers rather than core components of the method, and retain them only when they improve held-out decision quality.
+
 ## Baseline Evaluation
 
 The updated evaluation protocol uses the same constructed dataset with deterministic `train`, `val`, and `test` (`test_id`) partitions, where `val` is reserved for baseline development and threshold selection, and `test` (`test_id`) is reserved for locked final reporting. Baseline comparison is restricted to four methods (`backbone_direct`, `agreement_check`, `confidence_threshold`, and `probe_heuristic`).

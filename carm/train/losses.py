@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from typing import Any, Mapping
 
 import torch
 import torch.nn.functional as F
@@ -8,6 +9,13 @@ import torch.nn.functional as F
 from carm.data.labeling import derive_reliability_target
 from carm.data.schema import Action, ConflictExample, CorruptModality, Family
 
+
+ACTION_LABELS = (
+    Action.TRUST_VISION.value,
+    Action.TRUST_TEXT.value,
+    Action.REQUIRE_AGREEMENT.value,
+    Action.ABSTAIN.value,
+)
 
 CONFLICT_TO_IDX = {
     Family.NONE: 0,
@@ -25,9 +33,84 @@ ACTION_TO_IDX = {
 
 
 @dataclass
-class TaskLossWeights:
-    lambda_cf: float = 0.5
-    rel_weight: float = 1.0
+class LossConfig:
+    action: bool = True
+    conflict: bool = False
+    reliability: bool = False
+    counterfactual: bool = False
+    lambda_conf: float = 0.0
+    lambda_rel: float = 0.0
+    lambda_cf: float = 0.0
+    margin_cf: float = 0.2
+
+    @classmethod
+    def from_mapping(
+        cls,
+        raw: Mapping[str, Any] | None = None,
+        *,
+        legacy_training: Mapping[str, Any] | None = None,
+    ) -> LossConfig:
+        if raw is not None:
+            action = bool(raw.get("action", True))
+            conflict = bool(raw.get("conflict", False))
+            reliability = bool(raw.get("reliability", False))
+            counterfactual = bool(raw.get("counterfactual", False))
+            lambda_conf = float(raw.get("lambda_conf", 1.0 if conflict else 0.0))
+            lambda_rel = float(raw.get("lambda_rel", 1.0 if reliability else 0.0))
+            lambda_cf = float(raw.get("lambda_cf", 0.5 if counterfactual else 0.0))
+            margin_cf = float(raw.get("margin_cf", 0.2))
+            return cls(
+                action=action,
+                conflict=conflict,
+                reliability=reliability,
+                counterfactual=counterfactual,
+                lambda_conf=lambda_conf,
+                lambda_rel=lambda_rel,
+                lambda_cf=lambda_cf,
+                margin_cf=margin_cf,
+            )
+
+        legacy = legacy_training or {}
+        return cls(
+            action=True,
+            conflict=True,
+            reliability=True,
+            counterfactual=float(legacy.get("lambda_cf", 0.5)) > 0.0,
+            lambda_conf=1.0,
+            lambda_rel=1.0,
+            lambda_cf=float(legacy.get("lambda_cf", 0.5)),
+            margin_cf=float(legacy.get("margin_cf", 0.2)),
+        )
+
+    def __post_init__(self) -> None:
+        self.action = bool(self.action)
+        self.conflict = bool(self.conflict)
+        self.reliability = bool(self.reliability)
+        self.counterfactual = bool(self.counterfactual)
+        self.lambda_conf = float(self.lambda_conf)
+        self.lambda_rel = float(self.lambda_rel)
+        self.lambda_cf = float(self.lambda_cf)
+        self.margin_cf = float(self.margin_cf)
+
+        if not (self.action or self.conflict or self.reliability or self.counterfactual):
+            raise ValueError("At least one loss must be enabled.")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def enabled_losses(self) -> dict[str, bool]:
+        return {
+            "action": self.action,
+            "conflict": self.conflict,
+            "reliability": self.reliability,
+            "counterfactual": self.counterfactual,
+        }
+
+    def diagnostic_validity(self) -> dict[str, bool]:
+        return {
+            "conflict": bool(self.conflict),
+            "reliability": bool(self.reliability or self.counterfactual),
+        }
 
 
 @dataclass
@@ -85,7 +168,7 @@ def multi_task_loss(
     reliability_pred: torch.Tensor,
     targets: ExampleTargets,
     cf_loss: torch.Tensor,
-    weights: TaskLossWeights,
+    loss_cfg: LossConfig,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     conflict = F.cross_entropy(
         conflict_logits,
@@ -96,11 +179,19 @@ def multi_task_loss(
         torch.tensor([targets.action_idx], device=action_logits.device),
     )
     reliability = F.mse_loss(reliability_pred.squeeze(0), targets.reliability_target)
-    total = conflict + action + weights.rel_weight * reliability + weights.lambda_cf * cf_loss
+    total = torch.tensor(0.0, device=action_logits.device)
+    if loss_cfg.action:
+        total = total + action
+    if loss_cfg.conflict:
+        total = total + (loss_cfg.lambda_conf * conflict)
+    if loss_cfg.reliability:
+        total = total + (loss_cfg.lambda_rel * reliability)
+    if loss_cfg.counterfactual:
+        total = total + (loss_cfg.lambda_cf * cf_loss)
     return total, {
         "loss_total": float(total.item()),
-        "loss_conflict": float(conflict.item()),
-        "loss_action": float(action.item()),
-        "loss_reliability": float(reliability.item()),
-        "loss_cf": float(cf_loss.item()),
+        "loss_conflict": float((loss_cfg.lambda_conf * conflict).item()) if loss_cfg.conflict else 0.0,
+        "loss_action": float(action.item()) if loss_cfg.action else 0.0,
+        "loss_reliability": float((loss_cfg.lambda_rel * reliability).item()) if loss_cfg.reliability else 0.0,
+        "loss_cf": float((loss_cfg.lambda_cf * cf_loss).item()) if loss_cfg.counterfactual else 0.0,
     }

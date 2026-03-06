@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import torch
 
@@ -13,6 +13,8 @@ class BackboneResult:
     hidden_states: torch.Tensor  # [L, D]
     answer_dist: torch.Tensor  # [V]
     answer_text: str
+    raw_text: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -20,6 +22,8 @@ class ProbeResult:
     answer_dist: torch.Tensor  # [V]
     answer_text: str
     features: torch.Tensor  # [F]
+    raw_text: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class BackboneAdapter(Protocol):

@@ -112,11 +112,22 @@ backbone:
 
 training:
   batch_size: 4
-  epochs: 2
+  epochs: 10
   lr: 0.001
-  lambda_cf: 0.5
-  margin_cf: 0.2
+  weight_decay: 0.01
+  early_stop_metric: task_success
+  patience: 2
   device: cpu
+
+loss:
+  action: true
+  conflict: false
+  reliability: false
+  counterfactual: false
+  lambda_conf: 0.0
+  lambda_rel: 0.0
+  lambda_cf: 0.0
+  margin_cf: 0.2
 
 eval:
   confidence_threshold: 0.3

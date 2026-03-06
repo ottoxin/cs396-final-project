@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -8,58 +6,30 @@ from typing import Any
 import torch
 from PIL import Image
 
+from carm.data.answer_vocab import (
+    DEFAULT_COLOR_VOCAB,
+    ParsedAnswer,
+    normalize_family_vocab,
+    parse_generated_answer,
+)
 from carm.data.schema import Family
 from carm.data.vqa_coco import infer_family
 from carm.models.features import extract_probe_features
 from carm.models.interfaces import BackboneResult, ProbeResult
 
 
-DEFAULT_COLOR_VOCAB = (
-    "red",
-    "blue",
-    "green",
-    "yellow",
-    "black",
-    "white",
-    "brown",
-    "gray",
-    "orange",
-    "pink",
-    "purple",
-)
-
-NUMBER_WORDS = {
-    "zero": 0,
-    "one": 1,
-    "two": 2,
-    "three": 3,
-    "four": 4,
-    "five": 5,
-    "six": 6,
-    "seven": 7,
-    "eight": 8,
-    "nine": 9,
-    "ten": 10,
-    "eleven": 11,
-    "twelve": 12,
-    "thirteen": 13,
-    "fourteen": 14,
-    "fifteen": 15,
-    "sixteen": 16,
-    "seventeen": 17,
-    "eighteen": 18,
-    "nineteen": 19,
-    "twenty": 20,
-}
-
-COLOR_ALIASES = {
-    "grey": "gray",
-    "violet": "purple",
-}
-
-
-def _normalize_whitespace(text: str) -> str:
-    return " ".join(text.strip().split())
+def _normalize_color_vocab(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        token = str(raw).strip().lower()
+        if not token:
+            continue
+        token = normalize_family_vocab((token,), Family.ATTRIBUTE_COLOR)[0]
+        if token not in seen:
+            seen.add(token)
+            normalized.append(token)
+    return tuple(normalized) or DEFAULT_COLOR_VOCAB
 
 
 @dataclass
@@ -71,6 +41,8 @@ class BackboneConfig:
     count_max: int = 20
     color_vocab: tuple[str, ...] | list[str] = DEFAULT_COLOR_VOCAB
     vocab: tuple[str, ...] | list[str] = field(default_factory=tuple)
+    family_vocab_overrides: dict[str, tuple[str, ...] | list[str]] | None = None
+    force_fallback_distribution: bool = False
 
     def __post_init__(self) -> None:
         count_min = int(self.count_min)
@@ -80,16 +52,21 @@ class BackboneConfig:
         self.count_min = count_min
         self.count_max = count_max
 
-        colors: list[str] = []
-        seen_colors: set[str] = set()
-        for raw in tuple(self.color_vocab):
-            token = str(raw).strip().lower()
-            if token and token not in seen_colors:
-                seen_colors.add(token)
-                colors.append(token)
-        if not colors:
-            colors = list(DEFAULT_COLOR_VOCAB)
-        self.color_vocab = tuple(colors)
+        self.color_vocab = _normalize_color_vocab(tuple(self.color_vocab))
+
+        raw_overrides = self.family_vocab_overrides or {}
+        normalized_overrides: dict[str, tuple[str, ...]] = {}
+        for raw_family, raw_values in raw_overrides.items():
+            family_key = str(raw_family).strip().lower()
+            try:
+                family = Family(family_key)
+            except ValueError:
+                continue
+            normalized_overrides[family.value] = normalize_family_vocab(tuple(raw_values), family)
+        if Family.EXISTENCE.value in normalized_overrides:
+            normalized_overrides[Family.EXISTENCE.value] = ("yes", "no", "unknown")
+        self.family_vocab_overrides = normalized_overrides or None
+        self.force_fallback_distribution = bool(self.force_fallback_distribution)
 
         raw_vocab = tuple(self.vocab)
         if raw_vocab:
@@ -97,8 +74,12 @@ class BackboneConfig:
             return
 
         union: list[str] = ["yes", "no"]
-        union.extend(self.color_vocab)
-        union.extend(str(i) for i in range(self.count_min, self.count_max + 1))
+        if self.family_vocab_overrides:
+            for values in self.family_vocab_overrides.values():
+                union.extend(v for v in values if v != "unknown")
+        else:
+            union.extend(self.color_vocab)
+            union.extend(str(i) for i in range(self.count_min, self.count_max + 1))
         union.append("unknown")
 
         seen: set[str] = set()
@@ -227,6 +208,10 @@ class Qwen25VLAdapter:
         )
 
     def _family_vocab(self, family: Family | None) -> tuple[str, ...]:
+        if family is not None and self.config.family_vocab_overrides:
+            override = self.config.family_vocab_overrides.get(family.value)
+            if override:
+                return tuple(override)
         if family == Family.EXISTENCE:
             return ("yes", "no", "unknown")
         if family == Family.COUNT:
@@ -296,52 +281,20 @@ class Qwen25VLAdapter:
             hs = torch.cat([pad, hs], dim=0)
         return hs
 
-    def _parse_yes_no(self, generated_text: str) -> str | None:
-        lowered = _normalize_whitespace(generated_text.lower())
-        matches = list(re.finditer(r"\b(yes|no|true|false|y|n)\b", lowered))
-        if not matches:
-            return None
-        token = matches[0].group(1)
-        if token in {"yes", "true", "y"}:
-            return "yes"
-        if token in {"no", "false", "n"}:
-            return "no"
-        return None
-
-    def _parse_count(self, generated_text: str) -> str | None:
-        lowered = _normalize_whitespace(generated_text.lower())
-        match = re.search(r"\b\d+\b", lowered)
-        if match:
-            return str(int(match.group(0)))
-
-        for token in re.findall(r"[a-z]+", lowered):
-            if token in NUMBER_WORDS:
-                return str(NUMBER_WORDS[token])
-        return None
-
-    def _parse_color(self, generated_text: str) -> str | None:
-        color_vocab = set(self.config.color_vocab)
-        lowered = _normalize_whitespace(generated_text.lower())
-        if lowered in color_vocab:
-            return lowered
-        if lowered in COLOR_ALIASES and COLOR_ALIASES[lowered] in color_vocab:
-            return COLOR_ALIASES[lowered]
-
-        for token in re.findall(r"[a-z]+", lowered):
-            candidate = COLOR_ALIASES.get(token, token)
-            if candidate in color_vocab:
-                return candidate
-        return None
-
-    def _parse_answer(self, generated_text: str, family: Family | None) -> str:
-        stripped = _normalize_whitespace(generated_text)
-        if family == Family.EXISTENCE:
-            return self._parse_yes_no(stripped) or "unknown"
-        if family == Family.COUNT:
-            return self._parse_count(stripped) or "unknown"
+    def _recognized_color_labels(self, family: Family | None) -> set[str]:
+        labels = set(DEFAULT_COLOR_VOCAB)
         if family == Family.ATTRIBUTE_COLOR:
-            return self._parse_color(stripped) or "unknown"
-        return stripped or "unknown"
+            labels.update(v for v in self._family_vocab(family) if v != "unknown")
+        return labels
+
+    def _parse_answer(self, generated_text: str, family: Family | None) -> ParsedAnswer:
+        if family in {Family.EXISTENCE, Family.COUNT, Family.ATTRIBUTE_COLOR}:
+            return parse_generated_answer(
+                generated_text,
+                family,
+                recognized_color_labels=self._recognized_color_labels(family),
+            )
+        return ParsedAnswer(candidate_text=generated_text.strip() or None, canonicalized_candidate=None)
 
     def _token_ids_for_vocab(self, vocab: tuple[str, ...]) -> list[int]:
         self._ensure_loaded()
@@ -429,6 +382,8 @@ class Qwen25VLAdapter:
         return dist
 
     def _distribution_from_first_token_logits(self, logits: torch.Tensor | None, family: Family | None) -> torch.Tensor | None:
+        if self.config.force_fallback_distribution:
+            return None
         vocab = self._family_vocab(family)
         if logits is None:
             return None
@@ -449,7 +404,12 @@ class Qwen25VLAdapter:
             return None
         return probs
 
-    def _infer(self, prompt: str, image_path: Path | None, family: Family | None) -> tuple[torch.Tensor, torch.Tensor, str]:
+    def _infer(
+        self,
+        prompt: str,
+        image_path: Path | None,
+        family: Family | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, str, str, dict[str, Any]]:
         self._ensure_loaded()
         assert self._model is not None
         assert self._tokenizer is not None
@@ -469,7 +429,16 @@ class Qwen25VLAdapter:
         sequences = generated.sequences
         generated_tokens = sequences[:, prompt_len:]
         generated_text = self._tokenizer.decode(generated_tokens[0].detach().cpu().tolist(), skip_special_tokens=True)
-        answer_text = self._parse_answer(generated_text, family)
+        parsed = self._parse_answer(generated_text, family)
+        vocab = self._family_vocab(family)
+        if family in {Family.EXISTENCE, Family.COUNT, Family.ATTRIBUTE_COLOR}:
+            canonicalized_candidate = parsed.canonicalized_candidate
+            parsed_in_active_vocab = canonicalized_candidate is not None and canonicalized_candidate in vocab
+            answer_text = canonicalized_candidate if parsed_in_active_vocab else "unknown"
+        else:
+            canonicalized_candidate = None
+            answer_text = parsed.candidate_text or "unknown"
+            parsed_in_active_vocab = answer_text in vocab
         seq_confidence = self._sequence_confidence(getattr(generated, "scores", None), generated_tokens[0])
 
         first_scores = None
@@ -478,12 +447,26 @@ class Qwen25VLAdapter:
             if isinstance(score0, torch.Tensor):
                 first_scores = score0[0]
         dist = self._distribution_from_first_token_logits(first_scores, family)
+        projection_succeeded = dist is not None
+        used_fallback_dist = False
         if dist is None:
             dist = self._fallback_dist(answer_text, family, seq_confidence)
+            used_fallback_dist = True
 
         hidden = prompt_outputs.hidden_states[-1][0]
         hidden_fmt = self._format_hidden(hidden)
-        return hidden_fmt, dist, answer_text
+        dist_argmax_label = vocab[int(torch.argmax(dist).item())] if vocab else answer_text
+        result_meta = {
+            "projection_succeeded": bool(projection_succeeded),
+            "used_fallback_dist": bool(used_fallback_dist),
+            "parsed_unknown": answer_text == "unknown",
+            "parsed_in_active_vocab": bool(parsed_in_active_vocab),
+            "canonicalized_candidate": canonicalized_candidate,
+            "out_of_vocab_generation": canonicalized_candidate is not None and canonicalized_candidate not in vocab,
+            "dist_argmax_label": dist_argmax_label,
+            "parsed_argmax_agree": answer_text == dist_argmax_label,
+        }
+        return hidden_fmt, dist, answer_text, generated_text, result_meta
 
     @staticmethod
     def _clone_backbone_result(result: BackboneResult) -> BackboneResult:
@@ -491,6 +474,8 @@ class Qwen25VLAdapter:
             hidden_states=result.hidden_states.clone(),
             answer_dist=result.answer_dist.clone(),
             answer_text=result.answer_text,
+            raw_text=result.raw_text,
+            metadata=dict(result.metadata or {}),
         )
 
     @staticmethod
@@ -499,6 +484,8 @@ class Qwen25VLAdapter:
             answer_dist=result.answer_dist.clone(),
             answer_text=result.answer_text,
             features=result.features.clone(),
+            raw_text=result.raw_text,
+            metadata=dict(result.metadata or {}),
         )
 
     def run_backbone_multimodal(self, image: str, text: str, question: str) -> BackboneResult:
@@ -509,8 +496,8 @@ class Qwen25VLAdapter:
         family = infer_family(question)
         image_path = self._resolve_image_path(image)
         prompt = self._qa_prompt(f"Caption: {text}\nQuestion: {question}", family)
-        hidden_states, dist, answer = self._infer(prompt, image_path=image_path, family=family)
-        result = BackboneResult(hidden_states=hidden_states, answer_dist=dist, answer_text=answer)
+        hidden_states, dist, answer, raw_text, metadata = self._infer(prompt, image_path=image_path, family=family)
+        result = BackboneResult(hidden_states=hidden_states, answer_dist=dist, answer_text=answer, raw_text=raw_text, metadata=metadata)
         if self.cache_results:
             self._cache_mm[key] = result
         return self._clone_backbone_result(result)
@@ -523,8 +510,8 @@ class Qwen25VLAdapter:
         family = infer_family(question)
         image_path = self._resolve_image_path(image)
         prompt = self._qa_prompt(f"Question: {question}", family)
-        _, dist, answer = self._infer(prompt, image_path=image_path, family=family)
-        result = ProbeResult(answer_dist=dist, answer_text=answer, features=extract_probe_features(dist))
+        _, dist, answer, raw_text, metadata = self._infer(prompt, image_path=image_path, family=family)
+        result = ProbeResult(answer_dist=dist, answer_text=answer, features=extract_probe_features(dist), raw_text=raw_text, metadata=metadata)
         if self.cache_results:
             self._cache_v[key] = result
         return self._clone_probe_result(result)
@@ -536,8 +523,8 @@ class Qwen25VLAdapter:
 
         family = infer_family(question)
         prompt = self._qa_prompt(f"Caption: {text}\nQuestion: {question}", family)
-        _, dist, answer = self._infer(prompt, image_path=None, family=family)
-        result = ProbeResult(answer_dist=dist, answer_text=answer, features=extract_probe_features(dist))
+        _, dist, answer, raw_text, metadata = self._infer(prompt, image_path=None, family=family)
+        result = ProbeResult(answer_dist=dist, answer_text=answer, features=extract_probe_features(dist), raw_text=raw_text, metadata=metadata)
         if self.cache_results:
             self._cache_t[key] = result
         return self._clone_probe_result(result)

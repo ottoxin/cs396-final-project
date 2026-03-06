@@ -12,6 +12,7 @@ class PredictionOutput:
     abstained: bool
     confidence: float | None = None
     metadata: dict[str, Any] | None = None
+    raw_text: str | None = None
 
 
 @dataclass
@@ -24,7 +25,7 @@ class AnswerOutput:
 
 @dataclass
 class PolicyOutput:
-    pred_conflict_type: str
+    pred_conflict_type: str | None
     pred_action: str
     abstained: bool
     r_v: float | None = None

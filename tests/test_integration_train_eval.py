@@ -76,6 +76,17 @@ class TestIntegrationPhaseASmoke(unittest.TestCase):
                 "task_success",
             }
             self.assertTrue(required.issubset(set(row.keys())))
+            self.assertIn("raw_output", row)
+            self.assertIn("vision_raw_output", row)
+            self.assertIn("text_raw_output", row)
+            self.assertIn("projection_succeeded", row)
+            self.assertIn("used_fallback_dist", row)
+            self.assertIn("parsed_unknown", row)
+            self.assertIn("parsed_in_active_vocab", row)
+            self.assertIn("canonicalized_candidate", row)
+            self.assertIn("out_of_vocab_generation", row)
+            self.assertIn("dist_argmax_label", row)
+            self.assertIn("parsed_argmax_agree", row)
 
 
 if __name__ == "__main__":

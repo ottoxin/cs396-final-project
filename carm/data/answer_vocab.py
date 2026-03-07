@@ -127,6 +127,38 @@ def canonicalize_candidate_answer(
     return None
 
 
+def canonicalize_family_answer_for_agreement(
+    answer: str,
+    family: Family,
+    *,
+    recognized_color_labels: Iterable[str] | None = None,
+) -> str | None:
+    """Canonicalize an answer string for family-aware agreement checks.
+
+    This reuses the same family ontologies used by vocab building/parsing.
+    For colors, fall back to the more permissive gold normalization path so
+    identical custom labels such as ``beige`` can still compare canonically.
+    """
+
+    canonical = canonicalize_candidate_answer(
+        answer,
+        family,
+        recognized_color_labels=recognized_color_labels,
+    )
+    if canonical is not None:
+        return canonical
+
+    if family == Family.ATTRIBUTE_COLOR:
+        norm = normalize_text(answer)
+        if not norm:
+            return None
+        tokens = norm.split()
+        if len(tokens) != 1:
+            return None
+        return COLOR_ALIASES.get(tokens[0], tokens[0])
+    return None
+
+
 def normalize_gold_answer(answer: str, family: Family) -> str | None:
     """Normalize structured gold answers into canonical family labels."""
 

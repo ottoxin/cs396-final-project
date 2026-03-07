@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_baselines import _prune_summary, _resolve_answer_canonicalization, _resolve_example_image_paths
+from scripts.run_baselines import (
+    _apply_tuned_threshold_overrides,
+    _prune_summary,
+    _resolve_answer_canonicalization,
+    _resolve_example_image_paths,
+)
 from tests.fixtures import make_base_examples
 
 
@@ -72,6 +77,33 @@ class TestRunBaselines(unittest.TestCase):
 
         self.assertEqual(resolved["family_vocab_overrides"]["count"], ["1", "4", "unknown"])
         self.assertEqual(resolved["color_vocab"], ["beige", "gray"])
+
+    def test_apply_tuned_threshold_overrides_updates_eval_config(self) -> None:
+        cfg = {
+            "eval": {
+                "confidence_threshold": 0.3,
+                "probe_both_uncertain_threshold": 2.0,
+            }
+        }
+        payload = {
+            "thresholds": {
+                "confidence_threshold": 0.45,
+                "probe_both_uncertain_threshold": 1.25,
+            }
+        }
+
+        overridden, applied = _apply_tuned_threshold_overrides(cfg, payload)
+
+        self.assertEqual(cfg["eval"]["confidence_threshold"], 0.3)
+        self.assertEqual(overridden["eval"]["confidence_threshold"], 0.45)
+        self.assertEqual(overridden["eval"]["probe_both_uncertain_threshold"], 1.25)
+        self.assertEqual(
+            applied,
+            {
+                "confidence_threshold": 0.45,
+                "probe_both_uncertain_threshold": 1.25,
+            },
+        )
 
 
 if __name__ == "__main__":

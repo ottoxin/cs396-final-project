@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from carm.data.answer_vocab import (
     build_family_vocabs,
+    canonicalize_family_answer_for_agreement,
     canonicalize_candidate_answer,
     load_family_vocabs,
     normalize_gold_answer,
@@ -61,6 +62,13 @@ class TestAnswerVocab(unittest.TestCase):
     def test_normalize_gold_answer_is_color_permissive(self) -> None:
         self.assertEqual(normalize_gold_answer("Grey", Family.ATTRIBUTE_COLOR), "gray")
         self.assertEqual(normalize_gold_answer("beige", Family.ATTRIBUTE_COLOR), "beige")
+
+    def test_canonicalize_family_answer_for_agreement_uses_shared_family_contract(self) -> None:
+        self.assertEqual(canonicalize_family_answer_for_agreement("true", Family.EXISTENCE), "yes")
+        self.assertEqual(canonicalize_family_answer_for_agreement("02", Family.COUNT), "2")
+        self.assertEqual(canonicalize_family_answer_for_agreement("grey", Family.ATTRIBUTE_COLOR), "gray")
+        self.assertEqual(canonicalize_family_answer_for_agreement("beige", Family.ATTRIBUTE_COLOR), "beige")
+        self.assertIsNone(canonicalize_family_answer_for_agreement("no idea", Family.ATTRIBUTE_COLOR))
 
     def test_parse_generated_answer_extracts_sentence_form_candidates(self) -> None:
         existence = parse_generated_answer("Yes, there is a bicycle.", Family.EXISTENCE)

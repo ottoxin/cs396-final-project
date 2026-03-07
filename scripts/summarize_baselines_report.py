@@ -86,17 +86,20 @@ def _row_split(row: dict) -> str:
     return str(row.get("split", ""))
 
 
-def main() -> None:
-    args = parse_args()
-    baselines_root = Path(args.baselines_root)
-    split_filter = _parse_split_filter(args.split_filter)
-    target_coverage = float(args.target_coverage)
-
+def summarize_baselines_root(
+    baselines_root: str | Path,
+    *,
+    target_coverage: float = 0.8,
+    split_filter: str = "all",
+) -> dict[str, Path]:
+    baselines_root = Path(baselines_root)
+    split_filter_set = _parse_split_filter(split_filter)
     if not baselines_root.exists():
         raise SystemExit(f"Baselines root does not exist: {baselines_root}")
 
     main_rows: list[dict[str, str]] = []
     category_rows: list[dict[str, str]] = []
+    c2_rows: list[dict[str, str]] = []
     curves_out: dict[str, list[dict[str, float]]] = {}
 
     baseline_dirs = sorted(
@@ -109,8 +112,8 @@ def main() -> None:
         baseline_name = baseline_dir.name
         preds_path = baseline_dir / "per_example_predictions.jsonl"
         records = _read_jsonl(preds_path)
-        if split_filter is not None:
-            records = [r for r in records if _row_split(r) in split_filter]
+        if split_filter_set is not None:
+            records = [r for r in records if _row_split(r) in split_filter_set]
         if not records:
             continue
 
@@ -149,9 +152,18 @@ def main() -> None:
                 "C5": _fmt(float(per_category.get("C5", 0.0))),
             }
         )
+        c2_rows.append(
+            {
+                "baseline": baseline_name,
+                "vision_only_acc": _fmt(metrics.get("c2_vision_only_accuracy")),
+                "text_only_acc": _fmt(metrics.get("c2_text_only_accuracy")),
+                "multimodal_abst_rate": _fmt(metrics.get("c2_multimodal_abstention_rate")),
+            }
+        )
 
     main_rows.sort(key=lambda r: r["baseline"])
     category_rows.sort(key=lambda r: r["baseline"])
+    c2_rows.sort(key=lambda r: r["baseline"])
 
     report_dir = baselines_root / "report"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -160,6 +172,8 @@ def main() -> None:
     main_md = report_dir / "main_table.md"
     category_csv = report_dir / "per_category_task_success.csv"
     category_md = report_dir / "per_category_task_success.md"
+    c2_csv = report_dir / "c2_diagnostics.csv"
+    c2_md = report_dir / "c2_diagnostics.md"
     curves_json = report_dir / "risk_coverage_task_success_curves.json"
 
     main_header = [
@@ -187,13 +201,35 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(category_rows)
     category_md.write_text(_render_markdown(category_rows, category_header), encoding="utf-8")
+
+    c2_header = ["baseline", "vision_only_acc", "text_only_acc", "multimodal_abst_rate"]
+    with c2_csv.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=c2_header)
+        writer.writeheader()
+        writer.writerows(c2_rows)
+    c2_md.write_text(_render_markdown(c2_rows, c2_header), encoding="utf-8")
     curves_json.write_text(json.dumps(curves_out, indent=2), encoding="utf-8")
 
-    print(f"wrote {main_csv}")
-    print(f"wrote {main_md}")
-    print(f"wrote {category_csv}")
-    print(f"wrote {category_md}")
-    print(f"wrote {curves_json}")
+    return {
+        "main_csv": main_csv,
+        "main_md": main_md,
+        "category_csv": category_csv,
+        "category_md": category_md,
+        "c2_csv": c2_csv,
+        "c2_md": c2_md,
+        "curves_json": curves_json,
+    }
+
+
+def main() -> None:
+    args = parse_args()
+    outputs = summarize_baselines_root(
+        args.baselines_root,
+        target_coverage=float(args.target_coverage),
+        split_filter=args.split_filter,
+    )
+    for path in outputs.values():
+        print(f"wrote {path}")
 
 
 if __name__ == "__main__":

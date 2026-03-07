@@ -258,6 +258,9 @@ class TestTrainingScripts(unittest.TestCase):
             self.assertIsNone(row["pred_conflict_type"])
             self.assertIsNone(row["r_v"])
             self.assertIsNone(row["r_t"])
+            self.assertIn("c2_vision_only_correct", row)
+            self.assertIn("c2_text_only_correct", row)
+            self.assertIn("c2_multimodal_abstained", row)
 
     def test_action_only_carm_predictor_keeps_nullable_aux_fields(self) -> None:
         examples = _make_examples()[:1]
@@ -276,9 +279,15 @@ class TestTrainingScripts(unittest.TestCase):
         self.assertIn("pred_conflict_type", row)
         self.assertIn("r_v", row)
         self.assertIn("r_t", row)
+        self.assertIn("c2_vision_only_correct", row)
+        self.assertIn("c2_text_only_correct", row)
+        self.assertIn("c2_multimodal_abstained", row)
         self.assertIsNone(row["pred_conflict_type"])
         self.assertIsNone(row["r_v"])
         self.assertIsNone(row["r_t"])
+        self.assertIsNone(row["c2_vision_only_correct"])
+        self.assertIsNone(row["c2_text_only_correct"])
+        self.assertIsNone(row["c2_multimodal_abstained"])
 
 
 if __name__ == "__main__":

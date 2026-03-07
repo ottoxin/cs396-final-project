@@ -38,7 +38,7 @@ Why this interpreter path is explicit:
 ### 1) Prepare baseline-ready local outputs from HF dataset
 
 ```bash
-python3 scripts/prepare_hf_5way_dataset.py \
+./.venv/bin/python scripts/prepare_hf_5way_dataset.py \
   --hf-repo-id nbso/carm-vqa-5way \
   --hf-revision main \
   --cache-root data/cache/hf_5way
@@ -49,17 +49,40 @@ This writes:
 - `data/cache/hf_5way/prepared/carm_vqa_5way.manifest.json`
 - `data/cache/hf_5way/images/*.jpg`
 
-### 2) Run baselines (Qwen, flattened evaluator schema)
+Protocol note:
+- HF prep now requires an explicit C2 `text_supported_target` source field.
+- If the active HF revision omits that field, prep fails loudly and writes a manifest with `status=failed`.
+- For the current interim execution fallback in this repo, use `configs/hf_5way_qwen_runtime_normalized.yaml` plus `data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl`. That local artifact fixes stale C2 action labels but does not fabricate missing C2 text targets, so C2 text diagnostics remain unavailable and the run should not be treated as the final protocol-complete refresh.
+
+### 2) Tune thresholded baselines on `val`
 
 ```bash
-python3 scripts/run_baselines.py \
-  --config configs/hf_5way_qwen.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
-  --output_dir outputs/baselines/hf_5way_qwen \
+./.venv/bin/python scripts/tune_baseline_thresholds.py \
+  --config configs/hf_5way_qwen_runtime_normalized.yaml \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl \
+  --output_dir outputs/baselines/RUN-0006_hf5way_qwen_val_tuning \
+  --split val
+```
+
+This writes:
+- `outputs/baselines/RUN-0006_hf5way_qwen_val_tuning/tuned_thresholds.json`
+- `outputs/baselines/RUN-0006_hf5way_qwen_val_tuning/confidence_threshold_sweep.json`
+- `outputs/baselines/RUN-0006_hf5way_qwen_val_tuning/probe_heuristic_sweep.json`
+
+### 3) Run locked baselines on `test_id`
+
+```bash
+./.venv/bin/python scripts/run_baselines.py \
+  --config configs/hf_5way_qwen_runtime_normalized.yaml \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl \
+  --output_dir outputs/baselines/RUN-0007_hf5way_qwen_test_id_tuned \
+  --tuned-thresholds-json outputs/baselines/RUN-0006_hf5way_qwen_val_tuning/tuned_thresholds.json \
   --resume \
   --split test_id \
   --progress-every 500
 ```
+
+These commands assume the project virtualenv. Do not rely on system `python3` on Quest.
 
 Active baseline set in the runner:
 - `backbone_direct`
@@ -69,7 +92,7 @@ Active baseline set in the runner:
 
 Each baseline uses the same flat evaluator contract:
 - per-example core fields: input/gold metadata, `final_answer`, `abstained`, `confidence`, `correct`, `task_success`
-- optional extra fields are appended only for richer predictors such as CARM
+- optional extra fields are appended for richer predictors and C2 diagnostics such as `pred_action`, `r_v`, `r_t`, `audit`, `c2_vision_only_correct`, `c2_text_only_correct`, and `c2_multimodal_abstained`
 
 Main artifacts:
 - per baseline directory:
@@ -77,26 +100,29 @@ Main artifacts:
   - `metrics.json`
 - run root:
   - `summary.json`
+  - `applied_tuned_thresholds.json`
+  - `report/main_table.csv`
+  - `report/main_table.md`
+  - `report/per_category_task_success.csv`
+  - `report/per_category_task_success.md`
+  - `report/c2_diagnostics.csv`
+  - `report/c2_diagnostics.md`
+  - `report/risk_coverage_task_success_curves.json`
 
 The backbone now answers via free generation with family-specific prompting/parsing:
 - existence: `Answer yes or no only.`
 - count: `Answer with a single integer only.`
 - color: `Answer with a single color word only.`
 
-### 3) Build baseline summary tables
+### 4) Rerender baseline report tables (optional)
 
 ```bash
-python3 scripts/summarize_baselines_report.py \
-  --baselines-root outputs/baselines/hf_5way_qwen \
+./.venv/bin/python scripts/summarize_baselines_report.py \
+  --baselines-root outputs/baselines/RUN-0007_hf5way_qwen_test_id_tuned \
   --target-coverage 0.8
 ```
 
-This writes:
-- `outputs/baselines/hf_5way_qwen/report/main_table.csv`
-- `outputs/baselines/hf_5way_qwen/report/main_table.md`
-- `outputs/baselines/hf_5way_qwen/report/per_category_task_success.csv`
-- `outputs/baselines/hf_5way_qwen/report/per_category_task_success.md`
-- `outputs/baselines/hf_5way_qwen/report/risk_coverage_task_success_curves.json`
+`scripts/run_baselines.py` now writes the report automatically; rerender manually only if you need to rebuild the tables from existing per-example outputs.
 
 ## Repository Layout
 
@@ -166,7 +192,7 @@ For the canonical 5-way dataset workflow, use `scripts/prepare_hf_5way_dataset.p
 Legacy v1 predictions can be migrated once to v2 rows:
 
 ```bash
-python3 scripts/migrate_predictions_v1_to_v2.py \
+./.venv/bin/python scripts/migrate_predictions_v1_to_v2.py \
   --input_jsonl <legacy_v1_predictions.jsonl> \
   --output_jsonl <migrated_v2_predictions.jsonl>
 ```
@@ -182,13 +208,13 @@ Legacy scripts no longer in active use have been moved to:
 Default test run (lightweight, no forced real-model inference):
 
 ```bash
-pytest -q
+./.venv/bin/python -m pytest -q
 ```
 
 Opt-in real Qwen inference test:
 
 ```bash
-RUN_QWEN_INFERENCE_TESTS=1 pytest tests/test_qwen_inference_optin.py
+RUN_QWEN_INFERENCE_TESTS=1 ./.venv/bin/python -m pytest tests/test_qwen_inference_optin.py
 ```
 
 This test exercises real free-generation inference for existence, count, and color prompts and checks the canonical parsed answers. Real-model runs remain required for reported baseline results; the opt-in test is a pre-release validation gate.

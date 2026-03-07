@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 import torch
 
@@ -15,6 +16,10 @@ from carm.models.registry import create_backbone
 from carm.train.losses import LossConfig
 from carm.utils.config import load_yaml_config
 from carm.utils.device import resolve_carm_device
+from carm.utils.run_metadata import hash_file_contents, hash_jsonable, resolve_git_commit
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def parse_args() -> argparse.Namespace:
@@ -77,6 +82,23 @@ def _resolve_diagnostic_validity(
     return loss_cfg.diagnostic_validity()
 
 
+def _resolve_dataset_manifest_hash(cfg: dict[str, object]) -> str | None:
+    data_cfg = cfg.get("data", {})
+    if not isinstance(data_cfg, dict):
+        return None
+    paths_cfg = data_cfg.get("paths", {})
+    if not isinstance(paths_cfg, dict):
+        return None
+    manifest_path = paths_cfg.get("prepared_manifest_json")
+    if not isinstance(manifest_path, str) or not manifest_path.strip():
+        return None
+
+    candidate = Path(manifest_path)
+    if not candidate.is_absolute():
+        candidate = (PROJECT_ROOT / candidate).resolve()
+    return hash_file_contents(candidate)
+
+
 def main() -> None:
     args = parse_args()
     cfg = load_yaml_config(args.config)
@@ -110,6 +132,9 @@ def main() -> None:
     if getattr(backbone, "name", "") == "llava_next_8b":
         raise RuntimeError("llava_next_8b is not runnable yet for evaluation. Use qwen2_5_vl_7b.")
     resolved_device = resolve_carm_device(train_cfg.get("device"), backbone)
+    resolved_config_hash = hash_jsonable(cfg)
+    dataset_manifest_hash = _resolve_dataset_manifest_hash(cfg)
+    git_commit = resolve_git_commit(PROJECT_ROOT)
 
     predictor = CARMPredictor(
         model=model,
@@ -126,6 +151,10 @@ def main() -> None:
         semantic_match_threshold=float(eval_cfg.get("semantic_match_threshold", 0.82)),
         canonicalization_cfg=canonicalization_cfg,
         include_heuristic_calibration=bool(args.report_calibration_heuristic),
+        resolved_config_hash=resolved_config_hash,
+        selected_split=args.split,
+        dataset_manifest_hash=dataset_manifest_hash,
+        git_commit=git_commit,
     )
 
     print(json.dumps(metrics, indent=2))

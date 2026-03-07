@@ -142,5 +142,5 @@ eval:
     - task_success_per_split
 
 runtime:
-  device: cpu
+  device: auto
   notes: HF-first default configuration with Qwen2.5-VL backbone

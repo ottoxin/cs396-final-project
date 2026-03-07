@@ -7,6 +7,7 @@ from carm.data.hf5way import (
     answer_type_for_family,
     assign_splits_by_base,
     derive_protocol_category,
+    expected_oracle_action_for_category,
     normalize_oracle_action,
     schema_fields_for_category,
 )
@@ -41,7 +42,9 @@ class TestHF5WayHelpers(unittest.TestCase):
 
     def test_schema_mapping(self) -> None:
         self.assertEqual(schema_fields_for_category("C1"), ("clean", "none", 0, "require_agreement"))
+        self.assertEqual(schema_fields_for_category("C2"), ("text_edit", "text", 1, "abstain"))
         self.assertEqual(schema_fields_for_category("C5"), ("both", "both", 1, "abstain"))
+        self.assertEqual(expected_oracle_action_for_category("C2"), "abstain")
         self.assertEqual(answer_type_for_family("existence"), "boolean")
         self.assertEqual(answer_type_for_family("count"), "integer")
         self.assertEqual(answer_type_for_family("attribute_color"), "color")

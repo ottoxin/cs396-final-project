@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
+from carm.data.hf5way import expected_oracle_action_for_category
+
 
 DATASET_RECORD_VERSION = "v1"
 
@@ -107,6 +109,16 @@ _CORRUPT_MODALITY_ALIASES = {
 }
 
 
+def _protocol_category_from_item(item: dict[str, Any]) -> str:
+    category = str(item.get("protocol_category", "")).strip().upper()
+    if category:
+        return category
+    metadata = item.get("metadata")
+    if isinstance(metadata, dict):
+        return str(metadata.get("protocol_category", "")).strip().upper()
+    return ""
+
+
 @dataclass
 class ConflictExample:
     example_id: str
@@ -129,6 +141,8 @@ class ConflictExample:
     heldout_family_flag: bool = False
     heldout_severity_flag: bool = False
     hard_swap_flag: bool = False
+    vision_supported_target: str | None = None
+    text_supported_target: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     record_version: str = DATASET_RECORD_VERSION
 
@@ -185,6 +199,10 @@ class ConflictExample:
 
         raw_evidence = str(item.get("evidence_modality", EvidenceModality.EITHER.value)).lower()
         evidence_modality = EvidenceModality(raw_evidence)
+        protocol_category = _protocol_category_from_item(item)
+        raw_oracle_action = str(item.get("oracle_action", Action.REQUIRE_AGREEMENT.value))
+        if protocol_category:
+            raw_oracle_action = expected_oracle_action_for_category(protocol_category)
 
         return cls(
             example_id=str(item.get("example_id", f"{base_id}::{variant_id}")),
@@ -200,13 +218,23 @@ class ConflictExample:
             corrupt_modality=corrupt_modality,
             severity=int(item.get("severity", 0)),
             answer_type=answer_type,
-            oracle_action=Action(str(item.get("oracle_action", Action.REQUIRE_AGREEMENT.value))),
+            oracle_action=Action(raw_oracle_action),
             source_image_id=item.get("source_image_id"),
             template_id=item.get("template_id"),
             evidence_modality=evidence_modality,
             heldout_family_flag=bool(item.get("heldout_family_flag", False)),
             heldout_severity_flag=bool(item.get("heldout_severity_flag", False)),
             hard_swap_flag=bool(item.get("hard_swap_flag", False)),
+            vision_supported_target=(
+                str(item["vision_supported_target"]).strip()
+                if item.get("vision_supported_target") is not None
+                else None
+            ),
+            text_supported_target=(
+                str(item["text_supported_target"]).strip()
+                if item.get("text_supported_target") is not None
+                else None
+            ),
             metadata=item.get("metadata", {}),
             record_version=str(item.get("record_version", DATASET_RECORD_VERSION)),
         )

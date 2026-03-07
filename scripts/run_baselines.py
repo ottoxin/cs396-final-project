@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -26,6 +28,8 @@ from carm.eval.baselines import (
 from carm.eval.evaluator import evaluate_predictor
 from carm.models.registry import create_backbone
 from carm.utils.config import load_yaml_config
+from carm.utils.run_metadata import hash_file_contents, hash_jsonable, resolve_git_commit
+from scripts.summarize_baselines_report import summarize_baselines_root
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,6 +37,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True)
     parser.add_argument("--input_jsonl", required=True)
     parser.add_argument("--output_dir", required=True)
+    parser.add_argument(
+        "--tuned-thresholds-json",
+        default=None,
+        help="Optional frozen threshold artifact from scripts/tune_baseline_thresholds.py.",
+    )
     parser.add_argument("--resume", action="store_true", help="Resume from existing per-baseline outputs.")
     parser.add_argument(
         "--progress-every",
@@ -71,6 +80,11 @@ def parse_args() -> argparse.Namespace:
         "--report-calibration-heuristic",
         action="store_true",
         help="Accepted for CLI compatibility with older runs.",
+    )
+    parser.add_argument(
+        "--unsafe-resume-override",
+        action="store_true",
+        help="Allow resume despite run fingerprint mismatches. Unsafe for reportable runs.",
     )
     return parser.parse_args()
 
@@ -180,10 +194,68 @@ def _resolve_answer_canonicalization(eval_cfg: dict[str, object], backbone_cfg: 
     return resolved
 
 
+def _resolve_dataset_manifest_hash(cfg: dict[str, object], *, project_root: Path = PROJECT_ROOT) -> str | None:
+    data_cfg = cfg.get("data", {})
+    if not isinstance(data_cfg, dict):
+        return None
+    paths_cfg = data_cfg.get("paths", {})
+    if not isinstance(paths_cfg, dict):
+        return None
+    manifest_path = paths_cfg.get("prepared_manifest_json")
+    if not isinstance(manifest_path, str) or not manifest_path.strip():
+        return None
+    candidate = Path(manifest_path)
+    if not candidate.is_absolute():
+        candidate = (project_root / candidate).resolve()
+    return hash_file_contents(candidate)
+
+
+def _load_tuned_thresholds(path: str | Path) -> dict[str, object]:
+    tuned_path = Path(path)
+    with tuned_path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Tuned thresholds payload must be a JSON object: {tuned_path}")
+    return payload
+
+
+def _apply_tuned_threshold_overrides(
+    cfg: dict[str, object],
+    tuned_payload: dict[str, object],
+) -> tuple[dict[str, object], dict[str, float]]:
+    thresholds = tuned_payload.get("thresholds")
+    if not isinstance(thresholds, dict):
+        raise ValueError("Tuned thresholds payload is missing a 'thresholds' object.")
+
+    overridden = copy.deepcopy(cfg)
+    eval_cfg = overridden.get("eval", {})
+    if not isinstance(eval_cfg, dict):
+        eval_cfg = {}
+
+    applied: dict[str, float] = {}
+    for key in ("confidence_threshold", "probe_both_uncertain_threshold"):
+        if key not in thresholds:
+            continue
+        value = float(thresholds[key])
+        eval_cfg[key] = value
+        applied[key] = value
+
+    if not applied:
+        raise ValueError("Tuned thresholds payload did not provide known threshold overrides.")
+
+    overridden["eval"] = eval_cfg
+    return overridden, applied
+
+
 def main() -> None:
     run_start = time.monotonic()
     args = parse_args()
     cfg = load_yaml_config(args.config)
+    tuned_payload: dict[str, object] | None = None
+    applied_thresholds: dict[str, float] = {}
+    if args.tuned_thresholds_json:
+        tuned_payload = _load_tuned_thresholds(args.tuned_thresholds_json)
+        cfg, applied_thresholds = _apply_tuned_threshold_overrides(cfg, tuned_payload)
     examples = load_examples(args.input_jsonl)
 
     split_filter = _parse_split_filter(args.split)
@@ -200,13 +272,23 @@ def main() -> None:
     log = _make_logger(log_path)
     log(
         f"start baselines config={args.config} input={args.input_jsonl} split={args.split} "
-        f"resume={args.resume} track={args.track} schema_version={args.schema_version} examples={len(examples)}"
+        f"resume={args.resume} track={args.track} schema_version={args.schema_version} examples={len(examples)} "
+        f"tuned_thresholds_json={args.tuned_thresholds_json or 'none'}"
     )
+    if applied_thresholds:
+        log(f"applied tuned threshold overrides: {json.dumps(applied_thresholds, sort_keys=True)}")
+        assert tuned_payload is not None
+        copied_thresholds_path = out_dir / "applied_tuned_thresholds.json"
+        shutil.copy2(Path(args.tuned_thresholds_json), copied_thresholds_path)
+        log(f"copied frozen threshold artifact to {copied_thresholds_path}")
     _resolve_example_image_paths(examples, log)
 
     backbone = create_backbone(cfg.get("backbone", {}))
     eval_cfg = cfg.get("eval", {})
     canonicalization_cfg = _resolve_answer_canonicalization(cfg.get("eval", {}), cfg.get("backbone", {}))
+    resolved_config_hash = hash_jsonable(cfg)
+    dataset_manifest_hash = _resolve_dataset_manifest_hash(cfg)
+    git_commit = resolve_git_commit(PROJECT_ROOT)
 
     baselines = [
         BackboneDirectBaseline(backbone),
@@ -251,6 +333,11 @@ def main() -> None:
             semantic_match_threshold=float(eval_cfg.get("semantic_match_threshold", 0.82)),
             canonicalization_cfg=canonicalization_cfg,
             include_heuristic_calibration=bool(args.report_calibration_heuristic),
+            resolved_config_hash=resolved_config_hash,
+            selected_split=args.split,
+            dataset_manifest_hash=dataset_manifest_hash,
+            git_commit=git_commit,
+            unsafe_resume_override=bool(args.unsafe_resume_override),
         )
         summary[baseline.name] = results
         with summary_path.open("w", encoding="utf-8") as f:
@@ -263,6 +350,13 @@ def main() -> None:
     log(f"full summary json: {summary_path}")
 
     compact = {name: _compact_metrics(metrics) for name, metrics in summary.items()}
+    report_outputs = summarize_baselines_root(
+        out_dir,
+        target_coverage=float(eval_cfg.get("target_coverage", 0.8)),
+        split_filter=args.split,
+    )
+    for label, path in report_outputs.items():
+        log(f"report_{label}: {path}")
     print(json.dumps(compact, indent=2))
 
 

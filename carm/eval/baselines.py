@@ -8,7 +8,7 @@ import torch
 
 from carm.data.schema import ConflictExample
 from carm.models.interfaces import BackboneAdapter
-from carm.models.policy import answers_agree, normalize_answer
+from carm.models.policy import answers_agree, canonicalize_output_answer
 
 
 ABSTAIN_ANSWER = "<ABSTAIN>"
@@ -132,9 +132,9 @@ class AgreementCheckBaseline(BaseBaseline):
         pt = self.backbone.run_probe_text_only(ex.text_input, ex.question)
         merged_meta = self._merge_probe_metadata(pv, pt)
 
-        if answers_agree(pv.answer_text, pt.answer_text):
+        if answers_agree(pv.answer_text, pt.answer_text, family=ex.family):
             return BaselinePrediction(
-                final_answer=normalize_answer(pv.answer_text),
+                final_answer=canonicalize_output_answer(pv.answer_text, ex.family),
                 abstained=False,
                 confidence=min(self._max_prob(pv.answer_dist), self._max_prob(pt.answer_dist)),
                 raw_text=pv.raw_text,

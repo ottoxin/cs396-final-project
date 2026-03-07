@@ -10,7 +10,7 @@
 ## 2) Five-Category Protocol (Locked)
 
 - `C1`: clean image + clean caption -> `require_agreement`
-- `C2`: clean image + different caption -> `require_agreement`
+- `C2`: clean image + different caption -> `abstain`
 - `C3`: clean image + irrelevant caption -> `trust_vision`
 - `C4`: irrelevant image + clean caption -> `trust_text`
 - `C5`: irrelevant image + irrelevant caption -> `abstain`
@@ -57,9 +57,10 @@ Split policy in prepared outputs:
   - `confidence_threshold`
   - `probe_heuristic`
 - Two-pass self-consistency is excluded from baseline runner outputs.
-- Primary baseline comparison metric is `task_success` (action-aware), not raw `accuracy`.
+- Primary baseline comparison metric is `task_success` (category-first and outcome-based), not raw `accuracy`.
 - Required baseline reporting artifacts are produced with `scripts/summarize_baselines_report.py` and include:
   - baseline table (`csv` + `md`)
+  - `C2` diagnostic table (`csv` + `md`)
   - `risk_coverage_task_success` curve JSON
 - Reported metrics must come from real-model runs.
 - Lightweight default tests stay inference-free.

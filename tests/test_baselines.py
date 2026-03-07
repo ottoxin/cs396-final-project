@@ -95,6 +95,27 @@ def _example() -> ConflictExample:
     )
 
 
+def _color_example() -> ConflictExample:
+    return ConflictExample(
+        example_id="color-1",
+        base_id="color-1",
+        variant_id="v1",
+        image_path="img.jpg",
+        text_input="caption",
+        question="What color is the bus?",
+        gold_answer="gray",
+        split=Split.VAL,
+        family=Family.ATTRIBUTE_COLOR,
+        operator=Operator.CLEAN,
+        corrupt_modality=CorruptModality.NONE,
+        severity=0,
+        answer_type=AnswerType.COLOR,
+        oracle_action=Action.REQUIRE_AGREEMENT,
+        evidence_modality=EvidenceModality.EITHER,
+        metadata={"protocol_category": "C1"},
+    )
+
+
 class TestBaselines(unittest.TestCase):
     def test_backbone_direct_returns_multimodal_answer(self) -> None:
         baseline = BackboneDirectBaseline(
@@ -144,6 +165,21 @@ class TestBaselines(unittest.TestCase):
         self.assertLess(pred.confidence, 0.5)
         self.assertEqual(pred.metadata["vision_raw_output"], "raw::yes")
         self.assertEqual(pred.metadata["text_raw_output"], "raw::no")
+
+    def test_agreement_check_uses_family_canonicalization_for_color_aliases(self) -> None:
+        baseline = AgreementCheckBaseline(
+            _ControlledBackbone(
+                vision_answer="gray",
+                vision_dist=torch.tensor([0.8, 0.2], dtype=torch.float32),
+                text_answer="grey",
+                text_dist=torch.tensor([0.7, 0.3], dtype=torch.float32),
+            )
+        )
+
+        pred = baseline.predict(_color_example())
+
+        self.assertEqual(pred.final_answer, "gray")
+        self.assertFalse(pred.abstained)
 
     def test_confidence_threshold_abstains_when_inverse_entropy_is_low(self) -> None:
         baseline = ConfidenceThresholdBaseline(

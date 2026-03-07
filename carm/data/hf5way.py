@@ -19,17 +19,25 @@ ACTION_ALIAS = {
     "abstain": "abstain",
 }
 
-TUPLE_TO_CATEGORY = {
-    ("clean", "clean", "require_agreement"): "C1",
-    ("clean", "different", "require_agreement"): "C2",
-    ("clean", "irrelevant", "trust_vision"): "C3",
-    ("irrelevant", "clean", "trust_text"): "C4",
-    ("irrelevant", "irrelevant", "abstain"): "C5",
+STATE_TO_CATEGORY = {
+    ("clean", "clean"): "C1",
+    ("clean", "different"): "C2",
+    ("clean", "irrelevant"): "C3",
+    ("irrelevant", "clean"): "C4",
+    ("irrelevant", "irrelevant"): "C5",
+}
+
+CATEGORY_TO_ACTION = {
+    "C1": "require_agreement",
+    "C2": "abstain",
+    "C3": "trust_vision",
+    "C4": "trust_text",
+    "C5": "abstain",
 }
 
 CATEGORY_TO_SCHEMA = {
     "C1": ("clean", "none", 0, "require_agreement"),
-    "C2": ("text_edit", "text", 1, "require_agreement"),
+    "C2": ("text_edit", "text", 1, "abstain"),
     "C3": ("text_edit", "text", 1, "trust_vision"),
     "C4": ("vision_corrupt", "vision", 1, "trust_text"),
     "C5": ("both", "both", 1, "abstain"),
@@ -43,15 +51,27 @@ def normalize_oracle_action(action: str) -> str:
     return normalized
 
 
-def derive_protocol_category(image_state: str, caption_state: str, oracle_action: str) -> str:
+def expected_oracle_action_for_category(category: str) -> str:
+    out = CATEGORY_TO_ACTION.get(category)
+    if out is None:
+        raise ValueError(f"Unsupported protocol category: {category}")
+    return out
+
+
+def derive_protocol_category(
+    image_state: str,
+    caption_state: str,
+    oracle_action: str | None = None,
+) -> str:
+    if oracle_action is not None:
+        normalize_oracle_action(oracle_action)
     key = (
         image_state.strip().lower(),
         caption_state.strip().lower(),
-        normalize_oracle_action(oracle_action),
     )
-    out = TUPLE_TO_CATEGORY.get(key)
+    out = STATE_TO_CATEGORY.get(key)
     if out is None:
-        raise ValueError(f"Unsupported category tuple: {key}")
+        raise ValueError(f"Unsupported category states: {key}")
     return out
 
 

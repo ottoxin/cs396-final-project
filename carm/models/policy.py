@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from carm.data.answer_vocab import DEFAULT_COLOR_VOCAB, canonicalize_family_answer_for_agreement
+from carm.data.schema import Family
 from carm.data.schema import Action
 from carm.models.interfaces import ProbeResult
 
@@ -33,10 +35,6 @@ def normalize_answer(text: str) -> str:
     return YES_NO_MAP.get(stripped, stripped)
 
 
-def _is_structured(text: str) -> bool:
-    return bool(re.fullmatch(r"(yes|no|\d+|left|right|red|blue|black|white)", text))
-
-
 def _token_set(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
@@ -50,13 +48,41 @@ def semantic_similarity(a: str, b: str) -> float:
     return inter / max(1, union)
 
 
-def answers_agree(a: str, b: str, cfg: PolicyConfig | None = None) -> bool:
+def _canonical_agreement_label(text: str, family: Family | None) -> str | None:
+    if family not in {Family.EXISTENCE, Family.COUNT, Family.ATTRIBUTE_COLOR}:
+        return None
+    recognized_colors = DEFAULT_COLOR_VOCAB if family == Family.ATTRIBUTE_COLOR else None
+    return canonicalize_family_answer_for_agreement(
+        text,
+        family,
+        recognized_color_labels=recognized_colors,
+    )
+
+
+def canonicalize_output_answer(text: str, family: Family | None) -> str:
+    canonical = _canonical_agreement_label(text, family)
+    if canonical is not None:
+        return canonical
+    return normalize_answer(text)
+
+
+def answers_agree(
+    a: str,
+    b: str,
+    *,
+    family: Family | None = None,
+    cfg: PolicyConfig | None = None,
+) -> bool:
     cfg = cfg or PolicyConfig()
+    canonical_a = _canonical_agreement_label(a, family)
+    canonical_b = _canonical_agreement_label(b, family)
+    if canonical_a is not None and canonical_b is not None:
+        return canonical_a == canonical_b
+
     na = normalize_answer(a)
     nb = normalize_answer(b)
-
-    if _is_structured(na) or _is_structured(nb):
-        return na == nb
+    if na and na == nb:
+        return True
 
     ta = _token_set(na)
     tb = _token_set(nb)
@@ -70,6 +96,8 @@ def apply_action_and_generate(
     action: Action,
     vision_probe: ProbeResult,
     text_probe: ProbeResult,
+    *,
+    family: Family | None = None,
     cfg: PolicyConfig | None = None,
 ) -> tuple[str, bool, dict[str, str]]:
     """
@@ -87,9 +115,9 @@ def apply_action_and_generate(
     if action == Action.ABSTAIN:
         return cfg.abstain_message, True, {"path": "abstain", "suppressed": "both"}
 
-    if answers_agree(vision_probe.answer_text, text_probe.answer_text, cfg=cfg):
+    if answers_agree(vision_probe.answer_text, text_probe.answer_text, family=family, cfg=cfg):
         # Canonicalize to deterministic normalized answer.
-        final = normalize_answer(vision_probe.answer_text)
+        final = canonicalize_output_answer(vision_probe.answer_text, family)
         return final, False, {"path": "require_agreement", "suppressed": "none"}
 
     return cfg.abstain_message, True, {"path": "require_agreement_abstain", "suppressed": "both"}

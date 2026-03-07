@@ -87,6 +87,9 @@ class TestIntegrationPhaseASmoke(unittest.TestCase):
             self.assertIn("out_of_vocab_generation", row)
             self.assertIn("dist_argmax_label", row)
             self.assertIn("parsed_argmax_agree", row)
+            self.assertIn("c2_vision_only_correct", row)
+            self.assertIn("c2_text_only_correct", row)
+            self.assertIn("c2_multimodal_abstained", row)
 
 
 if __name__ == "__main__":

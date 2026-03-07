@@ -143,20 +143,14 @@ def task_success_from_components(
         raise TypeError("task_success_from_components expects (oracle_action, abstained, correct) or legacy 4-arg form.")
 
     oracle = str(oracle_action).strip().lower()
-    if pred_action:
-        if oracle == "abstain":
-            return abstained
-        if oracle == "require_agreement":
-            return pred_action == "require_agreement" and (abstained or correct)
-        if oracle in {"trust_vision", "trust_text"}:
-            return pred_action == oracle and correct
-        return False
-
     category = str(protocol_category or "").strip().upper()
 
-    if category == "C2":
+    if category in {"C2", "C5"}:
         return abstained
-    if category == "C5" or oracle == "abstain":
+    if category in {"C1", "C3", "C4"}:
+        return (not abstained) and correct
+
+    if oracle == "abstain":
         return abstained
     if oracle == "require_agreement":
         return abstained or correct
@@ -281,6 +275,23 @@ def _final_unknown_rate(records: list[dict[str, Any]]) -> float:
     return float(np.mean([1.0 if _final_answer_value(r) == "unknown" else 0.0 for r in records]))
 
 
+def _optional_bool_mean(records: list[dict[str, Any]], key: str) -> float | None:
+    values: list[float] = []
+    for row in records:
+        value = row.get(key)
+        if value is None:
+            continue
+        values.append(1.0 if _as_bool(value) else 0.0)
+    if not values:
+        return None
+    return float(np.mean(values))
+
+
+def _c2_diagnostic_metric(records: list[dict[str, Any]], key: str) -> float | None:
+    c2_rows = [row for row in records if _protocol_category_value(row) == "C2"]
+    return _optional_bool_mean(c2_rows, key)
+
+
 def _ordered_group_items(groups: dict[str, list[dict[str, Any]]], preferred: list[str]) -> list[tuple[str, list[dict[str, Any]]]]:
     ordered: list[tuple[str, list[dict[str, Any]]]] = []
     seen: set[str] = set()
@@ -391,6 +402,9 @@ def summarize_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
         "parsed_argmax_agreement_rate_per_category": _per_category_flag_rate(records, "parsed_argmax_agree"),
         "final_unknown_rate": _final_unknown_rate(records),
         "final_unknown_rate_per_category": _per_category_final_unknown_rate(records),
+        "c2_vision_only_accuracy": _c2_diagnostic_metric(records, "c2_vision_only_correct"),
+        "c2_text_only_accuracy": _c2_diagnostic_metric(records, "c2_text_only_correct"),
+        "c2_multimodal_abstention_rate": _c2_diagnostic_metric(records, "c2_multimodal_abstained"),
         "risk_coverage_task_success": risk_coverage_curve_task_success(records),
         "example_counts_by_split": _counts_by(records, lambda row: _example_value(row, "split", "")),
         "example_counts_by_category": _counts_by(records, _protocol_category_value),

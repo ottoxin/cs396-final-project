@@ -32,10 +32,11 @@ class TestMetrics(unittest.TestCase):
                 }
             )
         )
-        self.assertTrue(
+        self.assertFalse(
             task_success_single(
                 {
                     "oracle_action": "require_agreement",
+                    "protocol_category": "C1",
                     "abstained": True,
                     "correct": False,
                 }
@@ -45,6 +46,7 @@ class TestMetrics(unittest.TestCase):
             task_success_single(
                 {
                     "oracle_action": "require_agreement",
+                    "protocol_category": "C1",
                     "abstained": False,
                     "correct": True,
                 }
@@ -53,7 +55,7 @@ class TestMetrics(unittest.TestCase):
         self.assertFalse(
             task_success_single(
                 {
-                    "oracle_action": "require_agreement",
+                    "oracle_action": "abstain",
                     "protocol_category": "C2",
                     "abstained": False,
                     "correct": True,
@@ -63,7 +65,7 @@ class TestMetrics(unittest.TestCase):
         self.assertTrue(
             task_success_single(
                 {
-                    "oracle_action": "require_agreement",
+                    "oracle_action": "abstain",
                     "protocol_category": "C2",
                     "abstained": True,
                     "correct": False,
@@ -74,17 +76,7 @@ class TestMetrics(unittest.TestCase):
             task_success_single(
                 {
                     "oracle_action": "trust_vision",
-                    "abstained": False,
-                    "correct": True,
-                }
-            )
-        )
-        self.assertTrue(
-            task_success_single(
-                {
-                    "oracle_action": "require_agreement",
-                    "protocol_category": "C2",
-                    "pred_action": "require_agreement",
+                    "protocol_category": "C3",
                     "abstained": False,
                     "correct": True,
                 }
@@ -94,8 +86,19 @@ class TestMetrics(unittest.TestCase):
             task_success_single(
                 {
                     "oracle_action": "trust_text",
+                    "protocol_category": "C4",
                     "abstained": True,
                     "correct": True,
+                }
+            )
+        )
+        self.assertTrue(
+            task_success_single(
+                {
+                    "oracle_action": "abstain",
+                    "protocol_category": "C5",
+                    "abstained": True,
+                    "correct": False,
                 }
             )
         )
@@ -113,12 +116,14 @@ class TestMetrics(unittest.TestCase):
         records = [
             {
                 "oracle_action": "trust_vision",
+                "protocol_category": "C3",
                 "abstained": False,
                 "correct": True,
                 "confidence": 0.9,
             },
             {
                 "oracle_action": "abstain",
+                "protocol_category": "C5",
                 "abstained": True,
                 "correct": False,
                 "confidence": 0.2,
@@ -142,6 +147,37 @@ class TestMetrics(unittest.TestCase):
 
         self.assertAlmostEqual(action_accuracy(records) or 0.0, 0.75, places=6)
         self.assertAlmostEqual(action_macro_f1(records) or 0.0, 2.0 / 3.0, places=6)
+
+    def test_c2_task_success_is_identical_for_flat_and_action_aware_rows(self) -> None:
+        flat = {
+            "oracle_action": "abstain",
+            "protocol_category": "C2",
+            "abstained": False,
+            "correct": True,
+        }
+        action_aware = {
+            **flat,
+            "pred_action": "require_agreement",
+        }
+
+        self.assertFalse(task_success_single(flat))
+        self.assertFalse(task_success_single(action_aware))
+
+        flat_abstain = dict(flat, abstained=True, correct=False)
+        action_abstain = dict(action_aware, abstained=True, correct=False)
+        self.assertTrue(task_success_single(flat_abstain))
+        self.assertTrue(task_success_single(action_abstain))
+
+    def test_c1_task_success_ignores_pred_action_and_requires_correct_nonabstained_answer(self) -> None:
+        row = {
+            "oracle_action": "require_agreement",
+            "protocol_category": "C1",
+            "pred_action": "abstain",
+            "abstained": False,
+            "correct": True,
+        }
+        self.assertTrue(task_success_single(row))
+        self.assertFalse(task_success_single(dict(row, abstained=True, correct=False)))
 
     def test_summarize_metrics_groups_by_category_and_split(self) -> None:
         records = [
@@ -183,6 +219,28 @@ class TestMetrics(unittest.TestCase):
                 "family": "none",
                 "protocol_category": "C5",
             },
+            {
+                "oracle_action": "abstain",
+                "pred_action": "abstain",
+                "abstained": True,
+                "correct": False,
+                "confidence": 0.7,
+                "projection_succeeded": True,
+                "used_fallback_dist": False,
+                "parsed_unknown": False,
+                "parsed_in_active_vocab": True,
+                "canonicalized_candidate": "yes",
+                "out_of_vocab_generation": False,
+                "dist_argmax_label": "yes",
+                "parsed_argmax_agree": True,
+                "final_answer": "<ABSTAIN>",
+                "split": "val",
+                "family": "existence",
+                "protocol_category": "C2",
+                "c2_vision_only_correct": True,
+                "c2_text_only_correct": False,
+                "c2_multimodal_abstained": True,
+            },
         ]
 
         metrics = summarize_metrics(records)
@@ -190,26 +248,45 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(metrics["task_success"], 1.0)
         self.assertEqual(metrics["action_accuracy"], 1.0)
         self.assertEqual(metrics["action_macro_f1"], 0.5)
-        self.assertEqual(metrics["accuracy"], 0.5)
-        self.assertEqual(metrics["coverage"], 0.5)
+        self.assertEqual(metrics["accuracy"], 1.0 / 3.0)
+        self.assertEqual(metrics["coverage"], 1.0 / 3.0)
         self.assertEqual(metrics["accuracy_on_answered"], 1.0)
         self.assertIn("risk_coverage_task_success", metrics)
         self.assertEqual(metrics["task_success_per_split"]["val"], 1.0)
         self.assertEqual(metrics["task_success_per_split"]["test_id"], 1.0)
         self.assertEqual(metrics["task_success_per_category"]["C1"], 1.0)
+        self.assertEqual(metrics["task_success_per_category"]["C2"], 1.0)
         self.assertEqual(metrics["task_success_per_category"]["C5"], 1.0)
         self.assertEqual(metrics["accuracy_per_category"]["C1"], 1.0)
         self.assertEqual(metrics["accuracy_per_category"]["C5"], 0.0)
-        self.assertEqual(metrics["projection_success_rate"], 0.5)
-        self.assertEqual(metrics["fallback_rate"], 0.5)
-        self.assertEqual(metrics["parsed_unknown_rate"], 0.5)
-        self.assertEqual(metrics["out_of_vocab_generation_rate"], 0.5)
+        self.assertEqual(metrics["projection_success_rate"], 2.0 / 3.0)
+        self.assertEqual(metrics["fallback_rate"], 1.0 / 3.0)
+        self.assertEqual(metrics["parsed_unknown_rate"], 1.0 / 3.0)
+        self.assertEqual(metrics["out_of_vocab_generation_rate"], 1.0 / 3.0)
         self.assertEqual(metrics["parsed_argmax_agreement_rate"], 1.0)
-        self.assertEqual(metrics["final_unknown_rate"], 0.5)
+        self.assertEqual(metrics["final_unknown_rate"], 1.0 / 3.0)
+        self.assertEqual(metrics["c2_vision_only_accuracy"], 1.0)
+        self.assertEqual(metrics["c2_text_only_accuracy"], 0.0)
+        self.assertEqual(metrics["c2_multimodal_abstention_rate"], 1.0)
         self.assertEqual(metrics["projection_success_rate_per_category"]["C1"], 1.0)
         self.assertEqual(metrics["fallback_rate_per_category"]["C5"], 1.0)
-        self.assertEqual(metrics["example_counts_by_split"]["val"], 1)
+        self.assertEqual(metrics["example_counts_by_split"]["val"], 2)
         self.assertEqual(metrics["example_counts_by_category"]["C5"], 1)
+
+    def test_c2_diagnostics_return_none_when_unavailable(self) -> None:
+        metrics = summarize_metrics(
+            [
+                {
+                    "oracle_action": "abstain",
+                    "abstained": True,
+                    "correct": False,
+                    "protocol_category": "C2",
+                }
+            ]
+        )
+        self.assertIsNone(metrics["c2_vision_only_accuracy"])
+        self.assertIsNone(metrics["c2_text_only_accuracy"])
+        self.assertIsNone(metrics["c2_multimodal_abstention_rate"])
 
 
 if __name__ == "__main__":

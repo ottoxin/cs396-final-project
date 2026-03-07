@@ -1,0 +1,10 @@
+extends: hf_5way_qwen
+
+data:
+  paths:
+    prepared_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl
+    prepared_manifest_json: data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.manifest.json
+    pilot_output_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl
+
+runtime:
+  notes: Local runtime-normalized fallback export with protocol-correct C2 action labels and missing explicit C2 text target.

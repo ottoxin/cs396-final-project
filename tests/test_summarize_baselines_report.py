@@ -41,6 +41,7 @@ class TestSummarizeBaselinesReport(unittest.TestCase):
             self.assertTrue(outputs["c2_md"].exists())
             c2_md = outputs["c2_md"].read_text(encoding="utf-8")
             self.assertIn("vision_only_acc", c2_md)
+            self.assertIn("1.0000 (n=1)", c2_md)
             self.assertIn("probe_heuristic", c2_md)
 
 

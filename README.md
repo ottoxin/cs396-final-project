@@ -50,33 +50,33 @@ This writes:
 - `data/cache/hf_5way/images/*.jpg`
 
 Protocol note:
-- HF prep now requires an explicit C2 `text_supported_target` source field.
-- If the active HF revision omits that field, prep fails loudly and writes a manifest with `status=failed`.
-- For the current interim execution fallback in this repo, use `configs/hf_5way_qwen_runtime_normalized.yaml` plus `data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl`. That local artifact fixes stale C2 action labels but does not fabricate missing C2 text targets, so C2 text diagnostics remain unavailable and the run should not be treated as the final protocol-complete refresh.
+- HF prep now rewrites stale `C2` oracle labels to `abstain`, sets `vision_supported_target = gold_answer`, and derives `text_supported_target` from the contradictory caption when the caption explicitly supports an answer.
+- The current realized caption-derived export is `data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl` with companion manifest `data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.manifest.json`.
+- On the current HF revision, caption rules populate `8,931 / 8,992` C2 text targets (`99.32%`). The remaining `61` rows are written with `text_supported_target = null` and `metadata.text_supported_target_source = "missing_after_caption_rule"` rather than fabricated.
 
 ### 2) Tune thresholded baselines on `val`
 
 ```bash
 ./.venv/bin/python scripts/tune_baseline_thresholds.py \
-  --config configs/hf_5way_qwen_runtime_normalized.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl \
-  --output_dir outputs/baselines/RUN-0006_hf5way_qwen_val_tuning \
+  --config configs/hf_5way_qwen_caption_derived.yaml \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl \
+  --output_dir outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived \
   --split val
 ```
 
 This writes:
-- `outputs/baselines/RUN-0006_hf5way_qwen_val_tuning/tuned_thresholds.json`
-- `outputs/baselines/RUN-0006_hf5way_qwen_val_tuning/confidence_threshold_sweep.json`
-- `outputs/baselines/RUN-0006_hf5way_qwen_val_tuning/probe_heuristic_sweep.json`
+- `outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/tuned_thresholds.json`
+- `outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/confidence_threshold_sweep.json`
+- `outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/probe_heuristic_sweep.json`
 
 ### 3) Run locked baselines on `test_id`
 
 ```bash
 ./.venv/bin/python scripts/run_baselines.py \
-  --config configs/hf_5way_qwen_runtime_normalized.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl \
-  --output_dir outputs/baselines/RUN-0007_hf5way_qwen_test_id_tuned \
-  --tuned-thresholds-json outputs/baselines/RUN-0006_hf5way_qwen_val_tuning/tuned_thresholds.json \
+  --config configs/hf_5way_qwen_caption_derived.yaml \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl \
+  --output_dir outputs/baselines/RUN-0010_hf5way_qwen_test_id_tuned_caption_derived \
+  --tuned-thresholds-json outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/tuned_thresholds.json \
   --resume \
   --split test_id \
   --progress-every 500
@@ -109,6 +109,8 @@ Main artifacts:
   - `report/c2_diagnostics.md`
   - `report/risk_coverage_task_success_curves.json`
 
+`report/c2_diagnostics.*` now prints each C2 metric with its evaluable denominator, e.g. `0.8123 (n=8931)`, so partial C2 text-target coverage is explicit in the report rather than hidden behind `n/a`.
+
 The backbone now answers via free generation with family-specific prompting/parsing:
 - existence: `Answer yes or no only.`
 - count: `Answer with a single integer only.`
@@ -118,11 +120,29 @@ The backbone now answers via free generation with family-specific prompting/pars
 
 ```bash
 ./.venv/bin/python scripts/summarize_baselines_report.py \
-  --baselines-root outputs/baselines/RUN-0007_hf5way_qwen_test_id_tuned \
+  --baselines-root outputs/baselines/RUN-0010_hf5way_qwen_test_id_tuned_caption_derived \
   --target-coverage 0.8
 ```
 
 `scripts/run_baselines.py` now writes the report automatically; rerender manually only if you need to rebuild the tables from existing per-example outputs.
+
+### 5) Train and evaluate CARM on the refreshed export
+
+Use the low-memory config for train/eval so the backbone keeps only a bounded result cache during the repeated multimodal/probe calls inside CARM:
+
+```bash
+./.venv/bin/python scripts/train_carm.py \
+  --config configs/hf_5way_qwen_caption_derived_lowmem.yaml \
+  --train_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl \
+  --output_dir outputs/carm/RUN-0011_hf5way_qwen_caption_derived_train
+
+./.venv/bin/python scripts/evaluate_carm.py \
+  --config configs/hf_5way_qwen_caption_derived_lowmem.yaml \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl \
+  --output_dir outputs/carm/RUN-0011_hf5way_qwen_caption_derived_eval_test_id \
+  --model_ckpt outputs/carm/RUN-0011_hf5way_qwen_caption_derived_train/carm_heads.pt \
+  --split test_id
+```
 
 ## Repository Layout
 

@@ -66,6 +66,11 @@ class CARMTrainer:
             weight_decay=self.config.weight_decay,
         )
 
+    def _clear_backbone_caches(self) -> None:
+        clear_fn = getattr(self.backbone, "clear_caches", None)
+        if callable(clear_fn):
+            clear_fn()
+
     def _forward_example(self, ex: ConflictExample) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         image_payload = ex.image_path
         recipe = ex.metadata.get("vision_recipe") if isinstance(ex.metadata, dict) else None
@@ -248,6 +253,7 @@ class CARMTrainer:
         with history_path.open("w", encoding="utf-8") as history_file:
             for epoch in range(1, self.config.epochs + 1):
                 train_metrics = self._train_epoch(loader, clean_index)
+                self._clear_backbone_caches()
 
                 with tempfile.TemporaryDirectory(dir=out_dir) as td:
                     val_dir = Path(td) / "val_eval"
@@ -256,12 +262,26 @@ class CARMTrainer:
                         output_dir=val_dir,
                         canonicalization_cfg=canonicalization_cfg,
                     )
+                    self._clear_backbone_caches()
 
                     improved = self._is_improved(val_metrics, best_metrics)
                     record = self._history_record(epoch, train_metrics, val_metrics, is_best=improved)
                     history.append(record)
                     history_file.write(json.dumps(record, ensure_ascii=True) + "\n")
                     history_file.flush()
+                    print(
+                        json.dumps(
+                            {
+                                "epoch": epoch,
+                                "train_loss_total": record["train_loss_total"],
+                                "val_task_success": record["val_task_success"],
+                                "val_action_accuracy": record["val_action_accuracy"],
+                                "is_best": improved,
+                            },
+                            ensure_ascii=True,
+                        ),
+                        flush=True,
+                    )
 
                     if improved:
                         best_metrics = dict(val_metrics)

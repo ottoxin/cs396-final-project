@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from carm.data.answer_vocab import COLOR_ALIASES, DEFAULT_COLOR_VOCAB
 from carm.data.labeling import derive_oracle_action
 from carm.data.schema import (
     Action,
@@ -150,6 +151,36 @@ def caption_supports_answer(question: str, family: Family, answer: str, caption:
     if family == Family.ATTRIBUTE_COLOR:
         return _caption_supports_color(answer, caption)
     return False
+
+
+def derive_caption_supported_answer(question: str, family: Family | str, caption: str) -> str | None:
+    family = Family(str(family))
+    if family == Family.EXISTENCE:
+        subj = _question_subject_tokens(question)
+        if not subj:
+            return None
+        cap_tokens = set(re.findall(r"[a-z0-9]+", caption.lower()))
+        return "yes" if subj.intersection(cap_tokens) else "no"
+
+    if family == Family.COUNT:
+        tokens = re.findall(r"[a-z0-9]+", caption.lower())
+        for tok in tokens:
+            if tok.isdigit():
+                return str(int(tok))
+            if tok in NUMBER_WORDS:
+                return str(NUMBER_WORDS[tok])
+        if any(tok in {"no", "none", "empty", "nothing"} for tok in tokens):
+            return "0"
+        return None
+
+    if family == Family.ATTRIBUTE_COLOR:
+        for tok in re.findall(r"[a-z0-9]+", caption.lower()):
+            mapped = COLOR_ALIASES.get(tok, tok)
+            if mapped in DEFAULT_COLOR_VOCAB:
+                return mapped
+        return None
+
+    return None
 
 
 def _answer_type_for_family(family: Family) -> AnswerType:

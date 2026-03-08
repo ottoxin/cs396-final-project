@@ -367,27 +367,31 @@ def _compute_c2_diagnostics(
     if _protocol_category(ex) != "C2":
         return diagnostics
 
-    vision_supported_answer = _c2_vision_supported_answer(ex)
-    text_supported_answer = _c2_text_supported_answer(ex)
+    diagnostics["c2_multimodal_abstained"] = bool(prediction.abstained)
+
     backbone = _probe_backbone(predictor)
-    if vision_supported_answer is None or text_supported_answer is None or backbone is None:
+    if backbone is None:
         return diagnostics
 
-    vision_probe = backbone.run_probe_vision_only(_vision_payload(ex), ex.question)
-    text_probe = backbone.run_probe_text_only(ex.text_input, ex.question)
-    diagnostics["c2_vision_only_correct"] = _answers_match(
-        vision_probe.answer_text,
-        vision_supported_answer,
-        ex.answer_type,
-        cfg,
-    )
-    diagnostics["c2_text_only_correct"] = _answers_match(
-        text_probe.answer_text,
-        text_supported_answer,
-        ex.answer_type,
-        cfg,
-    )
-    diagnostics["c2_multimodal_abstained"] = bool(prediction.abstained)
+    vision_supported_answer = _c2_vision_supported_answer(ex)
+    if vision_supported_answer is not None:
+        vision_probe = backbone.run_probe_vision_only(_vision_payload(ex), ex.question)
+        diagnostics["c2_vision_only_correct"] = _answers_match(
+            vision_probe.answer_text,
+            vision_supported_answer,
+            ex.answer_type,
+            cfg,
+        )
+
+    text_supported_answer = _c2_text_supported_answer(ex)
+    if text_supported_answer is not None:
+        text_probe = backbone.run_probe_text_only(ex.text_input, ex.question)
+        diagnostics["c2_text_only_correct"] = _answers_match(
+            text_probe.answer_text,
+            text_supported_answer,
+            ex.answer_type,
+            cfg,
+        )
     return diagnostics
 
 

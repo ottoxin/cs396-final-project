@@ -102,12 +102,14 @@ class Qwen25VLAdapter:
         device: str = "auto",
         torch_dtype: str = "auto",
         cache_results: bool = True,
+        cache_max_entries: int | None = None,
     ) -> None:
         self.model_name = model_name or "Qwen/Qwen2.5-VL-7B-Instruct"
         self.config = config or BackboneConfig()
         self.device = self._resolve_device(device)
         self.dtype = self._resolve_torch_dtype(torch_dtype, self.device.type)
         self.cache_results = bool(cache_results)
+        self.cache_max_entries = int(cache_max_entries) if cache_max_entries is not None and int(cache_max_entries) > 0 else None
         self._project_root = Path(__file__).resolve().parents[2]
 
         self._model: Any | None = None
@@ -118,6 +120,23 @@ class Qwen25VLAdapter:
         self._cache_mm: dict[str, BackboneResult] = {}
         self._cache_v: dict[str, ProbeResult] = {}
         self._cache_t: dict[str, ProbeResult] = {}
+
+    def clear_caches(self) -> None:
+        self._cache_mm.clear()
+        self._cache_v.clear()
+        self._cache_t.clear()
+
+    def _cache_put(self, cache: dict[str, Any], key: str, value: Any) -> None:
+        if not self.cache_results:
+            return
+        if key in cache:
+            cache.pop(key, None)
+        cache[key] = value
+        if self.cache_max_entries is None:
+            return
+        while len(cache) > self.cache_max_entries:
+            oldest_key = next(iter(cache))
+            cache.pop(oldest_key, None)
 
     @staticmethod
     def _resolve_device(raw: str) -> torch.device:
@@ -498,8 +517,7 @@ class Qwen25VLAdapter:
         prompt = self._qa_prompt(f"Caption: {text}\nQuestion: {question}", family)
         hidden_states, dist, answer, raw_text, metadata = self._infer(prompt, image_path=image_path, family=family)
         result = BackboneResult(hidden_states=hidden_states, answer_dist=dist, answer_text=answer, raw_text=raw_text, metadata=metadata)
-        if self.cache_results:
-            self._cache_mm[key] = result
+        self._cache_put(self._cache_mm, key, result)
         return self._clone_backbone_result(result)
 
     def run_probe_vision_only(self, image: str, question: str) -> ProbeResult:
@@ -512,8 +530,7 @@ class Qwen25VLAdapter:
         prompt = self._qa_prompt(f"Question: {question}", family)
         _, dist, answer, raw_text, metadata = self._infer(prompt, image_path=image_path, family=family)
         result = ProbeResult(answer_dist=dist, answer_text=answer, features=extract_probe_features(dist), raw_text=raw_text, metadata=metadata)
-        if self.cache_results:
-            self._cache_v[key] = result
+        self._cache_put(self._cache_v, key, result)
         return self._clone_probe_result(result)
 
     def run_probe_text_only(self, text: str, question: str) -> ProbeResult:
@@ -525,8 +542,7 @@ class Qwen25VLAdapter:
         prompt = self._qa_prompt(f"Caption: {text}\nQuestion: {question}", family)
         _, dist, answer, raw_text, metadata = self._infer(prompt, image_path=None, family=family)
         result = ProbeResult(answer_dist=dist, answer_text=answer, features=extract_probe_features(dist), raw_text=raw_text, metadata=metadata)
-        if self.cache_results:
-            self._cache_t[key] = result
+        self._cache_put(self._cache_t, key, result)
         return self._clone_probe_result(result)
 
 

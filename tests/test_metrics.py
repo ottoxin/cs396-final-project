@@ -266,8 +266,11 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(metrics["parsed_argmax_agreement_rate"], 1.0)
         self.assertEqual(metrics["final_unknown_rate"], 1.0 / 3.0)
         self.assertEqual(metrics["c2_vision_only_accuracy"], 1.0)
+        self.assertEqual(metrics["c2_vision_only_count"], 1)
         self.assertEqual(metrics["c2_text_only_accuracy"], 0.0)
+        self.assertEqual(metrics["c2_text_only_count"], 1)
         self.assertEqual(metrics["c2_multimodal_abstention_rate"], 1.0)
+        self.assertEqual(metrics["c2_multimodal_abstention_count"], 1)
         self.assertEqual(metrics["projection_success_rate_per_category"]["C1"], 1.0)
         self.assertEqual(metrics["fallback_rate_per_category"]["C5"], 1.0)
         self.assertEqual(metrics["example_counts_by_split"]["val"], 2)
@@ -281,12 +284,16 @@ class TestMetrics(unittest.TestCase):
                     "abstained": True,
                     "correct": False,
                     "protocol_category": "C2",
+                    "c2_multimodal_abstained": True,
                 }
             ]
         )
         self.assertIsNone(metrics["c2_vision_only_accuracy"])
+        self.assertEqual(metrics["c2_vision_only_count"], 0)
         self.assertIsNone(metrics["c2_text_only_accuracy"])
-        self.assertIsNone(metrics["c2_multimodal_abstention_rate"])
+        self.assertEqual(metrics["c2_text_only_count"], 0)
+        self.assertEqual(metrics["c2_multimodal_abstention_rate"], 1.0)
+        self.assertEqual(metrics["c2_multimodal_abstention_count"], 1)
 
 
 if __name__ == "__main__":

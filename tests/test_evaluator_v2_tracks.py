@@ -204,6 +204,31 @@ class TestEvaluatorCompatibility(unittest.TestCase):
             self.assertTrue(row["c2_text_only_correct"])
             self.assertEqual(row["text_supported_target"], "no")
 
+    def test_backbone_backed_predictor_keeps_partial_c2_diagnostics_when_text_target_missing(self) -> None:
+        example = make_base_examples()[2]
+        example.metadata = {"protocol_category": "C2"}
+        example.vision_supported_target = "yes"
+        example.text_supported_target = None
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "c2_partial"
+            metrics = evaluate_predictor(
+                _BackboneBackedPredictor(),
+                [example],
+                out,
+                track="all",
+                **self._fingerprint_kwargs(),
+            )
+            self.assertEqual(metrics["c2_vision_only_accuracy"], 1.0)
+            self.assertEqual(metrics["c2_vision_only_count"], 1)
+            self.assertIsNone(metrics["c2_text_only_accuracy"])
+            self.assertEqual(metrics["c2_text_only_count"], 0)
+            self.assertEqual(metrics["c2_multimodal_abstention_rate"], 1.0)
+            self.assertEqual(metrics["c2_multimodal_abstention_count"], 1)
+            row = json.loads((out / "per_example_predictions.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            self.assertTrue(row["c2_vision_only_correct"])
+            self.assertIsNone(row["c2_text_only_correct"])
+            self.assertTrue(row["c2_multimodal_abstained"])
+
     def test_resume_requires_matching_run_fingerprint(self) -> None:
         examples = make_base_examples()[:1]
         with tempfile.TemporaryDirectory() as td:

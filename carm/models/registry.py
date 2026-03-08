@@ -59,6 +59,11 @@ def create_backbone(backbone_cfg: dict[str, Any]):
             device=str(backbone_cfg.get("device", "auto")),
             torch_dtype=str(backbone_cfg.get("torch_dtype", "auto")),
             cache_results=bool(backbone_cfg.get("cache_results", True)),
+            cache_max_entries=(
+                int(backbone_cfg["cache_max_entries"])
+                if backbone_cfg.get("cache_max_entries") is not None
+                else None
+            ),
         )
 
     if name == "llava_next_8b":

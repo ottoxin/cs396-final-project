@@ -22,6 +22,7 @@ from carm.data.hf5way import (
     normalize_oracle_action,
     schema_fields_for_category,
 )
+from carm.data.vqa_coco import derive_caption_supported_answer
 
 C2_TEXT_SUPPORTED_ANSWER_KEYS = (
     "text_supported_target",
@@ -30,11 +31,6 @@ C2_TEXT_SUPPORTED_ANSWER_KEYS = (
     "perturbed_caption_answer",
     "text_answer",
 )
-
-
-class MissingC2TextSupportedTargetError(ValueError):
-    pass
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -105,9 +101,16 @@ def resolve_protocol_oracle_action(source_action: str, protocol_category: str) -
     return expected_action, normalized_source != expected_action
 
 
-def extract_c2_text_supported_answer(row: dict[str, Any], protocol_category: str) -> str | None:
+def extract_c2_text_supported_answer(
+    row: dict[str, Any],
+    protocol_category: str,
+    *,
+    question: str,
+    family: str,
+    caption: str,
+) -> tuple[str | None, str | None]:
     if protocol_category != "C2":
-        return None
+        return None, None
 
     for key in C2_TEXT_SUPPORTED_ANSWER_KEYS:
         value = row.get(key)
@@ -115,8 +118,12 @@ def extract_c2_text_supported_answer(row: dict[str, Any], protocol_category: str
             continue
         text = str(value).strip()
         if text:
-            return text
-    raise MissingC2TextSupportedTargetError("Missing explicit text_supported_target for C2.")
+            return text, f"explicit:{key}"
+
+    derived = derive_caption_supported_answer(question, family, caption)
+    if derived is not None:
+        return derived, "derived_from_caption_rule"
+    return None, "missing_after_caption_rule"
 
 
 def main() -> None:
@@ -146,6 +153,7 @@ def main() -> None:
     oracle_action_rewrite_count = 0
     c2_target_counts: Counter[str] = Counter()
     missing_c2_examples: list[str] = []
+    c2_text_target_source_counts: Counter[str] = Counter()
 
     for row in rows_iter:
         try:
@@ -177,7 +185,13 @@ def main() -> None:
             )
             if protocol_category == "C2":
                 c2_target_counts["c2_rows"] += 1
-            c2_text_supported_answer = extract_c2_text_supported_answer(row, protocol_category)
+            c2_text_supported_answer, c2_text_target_source = extract_c2_text_supported_answer(
+                row,
+                protocol_category,
+                question=str(row["question"]),
+                family=family,
+                caption=text_input,
+            )
             vision_supported_target = None
             if protocol_category == "C2":
                 vision_supported_target = str(row["gold_answer"]).strip()
@@ -185,6 +199,11 @@ def main() -> None:
                     c2_target_counts["vision_supported_target"] += 1
                 if c2_text_supported_answer:
                     c2_target_counts["text_supported_target"] += 1
+                else:
+                    c2_target_counts["text_supported_target_missing"] += 1
+                    missing_c2_examples.append(example_id)
+                if c2_text_target_source is not None:
+                    c2_text_target_source_counts[c2_text_target_source] += 1
 
             image_obj = _as_pil_image(row["image_path"])
             image_name = f"{_safe_name(example_id)}.jpg"
@@ -207,6 +226,8 @@ def main() -> None:
                 "hf_repo_id": args.hf_repo_id,
                 "hf_revision": args.hf_revision,
             }
+            if c2_text_target_source is not None:
+                metadata["text_supported_target_source"] = c2_text_target_source
 
             prepared.append(
                 {
@@ -236,9 +257,6 @@ def main() -> None:
             )
             family_counts[family] += 1
             category_counts[protocol_category] += 1
-        except MissingC2TextSupportedTargetError:
-            drop_counts["missing_c2_text_supported_target"] += 1
-            missing_c2_examples.append(str(row.get("example_id", "unknown")))
         except ValueError as exc:
             msg = str(exc).lower()
             if "perturbed caption" in msg:
@@ -281,25 +299,21 @@ def main() -> None:
         "protocol_category_counts": dict(sorted(category_counts.items(), key=lambda kv: kv[0])),
         "oracle_action_rewrite_count": int(oracle_action_rewrite_count),
         "c2_target_counts": dict(sorted(c2_target_counts.items(), key=lambda kv: kv[0])),
+        "c2_text_target_source_counts": dict(sorted(c2_text_target_source_counts.items(), key=lambda kv: kv[0])),
         "missing_c2_text_supported_target_examples_preview": missing_c2_examples[:20],
         "split_counts": dict(sorted(split_counts.items(), key=lambda kv: kv[0])),
         "output_jsonl": str(output_jsonl),
         "output_image_dir": str(image_dir),
     }
-    if missing_c2_examples:
-        manifest["status"] = "failed"
-        manifest["failure_reason"] = "missing_c2_text_supported_target"
-        manifest_json.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        raise SystemExit(
-            f"Missing explicit C2 text_supported_target for {len(missing_c2_examples)} rows. "
-            f"See manifest: {manifest_json}"
-        )
+    c2_rows = int(c2_target_counts.get("c2_rows", 0))
+    c2_text_rows = int(c2_target_counts.get("text_supported_target", 0))
+    manifest["c2_text_target_coverage"] = float(c2_text_rows / c2_rows) if c2_rows else None
 
     with output_jsonl.open("w", encoding="utf-8") as f:
         for row in prepared:
             f.write(json.dumps(row, ensure_ascii=True) + "\n")
 
-    manifest["status"] = "ok"
+    manifest["status"] = "ok_partial_c2_text_targets" if missing_c2_examples else "ok"
     manifest_json.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     print(f"wrote prepared dataset: {output_jsonl}")

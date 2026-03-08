@@ -72,6 +72,12 @@ def _fmt(x: float | None) -> str:
     return f"{x:.4f}"
 
 
+def _fmt_with_n(x: float | None, n: int) -> str:
+    if x is None:
+        return f"n/a (n={n})"
+    return f"{x:.4f} (n={n})"
+
+
 def _render_markdown(rows: list[dict[str, str]], header: list[str]) -> str:
     lines = [
         "| " + " | ".join(header) + " |",
@@ -155,9 +161,18 @@ def summarize_baselines_root(
         c2_rows.append(
             {
                 "baseline": baseline_name,
-                "vision_only_acc": _fmt(metrics.get("c2_vision_only_accuracy")),
-                "text_only_acc": _fmt(metrics.get("c2_text_only_accuracy")),
-                "multimodal_abst_rate": _fmt(metrics.get("c2_multimodal_abstention_rate")),
+                "vision_only_acc": _fmt_with_n(
+                    metrics.get("c2_vision_only_accuracy"),
+                    int(metrics.get("c2_vision_only_count", 0) or 0),
+                ),
+                "text_only_acc": _fmt_with_n(
+                    metrics.get("c2_text_only_accuracy"),
+                    int(metrics.get("c2_text_only_count", 0) or 0),
+                ),
+                "multimodal_abst_rate": _fmt_with_n(
+                    metrics.get("c2_multimodal_abstention_rate"),
+                    int(metrics.get("c2_multimodal_abstention_count", 0) or 0),
+                ),
             }
         )
 

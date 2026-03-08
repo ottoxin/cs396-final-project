@@ -1,0 +1,11 @@
+extends: hf_5way_qwen_caption_derived
+
+backbone:
+  cache_results: true
+  cache_max_entries: 512
+
+training:
+  batch_size: 1
+
+runtime:
+  notes: Low-memory CARM runtime on the caption-derived C2 target export with bounded backbone caches.

@@ -61,6 +61,16 @@ class TestBackboneRegistry(unittest.TestCase):
         self.assertEqual(backbone.config.count_max, 5)
         self.assertEqual(backbone.config.color_vocab, ("red", "gray"))
 
+    def test_create_qwen_backbone_prefers_local_files_only_by_default(self) -> None:
+        backbone = create_backbone({"name": "qwen2_5_vl_7b"})
+
+        self.assertTrue(backbone.prefer_local_files_only)
+
+    def test_create_qwen_backbone_allows_disabling_local_files_only_preference(self) -> None:
+        backbone = create_backbone({"name": "qwen2_5_vl_7b", "prefer_local_files_only": False})
+
+        self.assertFalse(backbone.prefer_local_files_only)
+
     def test_create_qwen_backbone_loads_family_vocab_from_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "family_vocab.json"

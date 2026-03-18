@@ -9,7 +9,7 @@ from scripts.summarize_baselines_report import summarize_baselines_root
 
 
 class TestSummarizeBaselinesReport(unittest.TestCase):
-    def test_summary_writes_c2_diagnostics_outputs(self) -> None:
+    def test_summary_writes_contradiction_diagnostics_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "baselines"
             baseline_dir = root / "probe_heuristic"
@@ -19,7 +19,10 @@ class TestSummarizeBaselinesReport(unittest.TestCase):
                     "example_id": "ex1",
                     "split": "test_id",
                     "oracle_action": "abstain",
-                    "protocol_category": "C2",
+                    "protocol_category": "C4",
+                    "vision_info_state": "informative",
+                    "text_info_state": "informative",
+                    "pairwise_relation": "contradictory",
                     "final_answer": "<ABSTAIN>",
                     "abstained": True,
                     "confidence": 0.7,

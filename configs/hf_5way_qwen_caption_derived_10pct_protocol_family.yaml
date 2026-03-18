@@ -1,0 +1,10 @@
+extends: hf_5way_qwen_caption_derived
+
+data:
+  paths:
+    prepared_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.jsonl
+    prepared_manifest_json: data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.manifest.json
+    pilot_output_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.jsonl
+
+runtime:
+  notes: 10 percent split-preserving subset sampled with protocol_category_family strata for revised C1-C5 experiments.

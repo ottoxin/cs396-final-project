@@ -2,9 +2,9 @@ extends: hf_5way_qwen
 
 data:
   paths:
-    prepared_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl
-    prepared_manifest_json: data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.manifest.json
-    pilot_output_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl
+    prepared_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way.jsonl
+    prepared_manifest_json: data/cache/hf_5way/prepared/carm_vqa_5way.manifest.json
+    pilot_output_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way.jsonl
 
 runtime:
-  notes: Local caption-derived C2 target export with protocol-correct C2 action labels and partial text target coverage.
+  notes: Current HF-backed prepared export with HF-aligned category numbering and caption-derived contradiction targets on C4 rows.

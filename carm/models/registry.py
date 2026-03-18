@@ -5,6 +5,7 @@ from typing import Any
 
 from carm.data.answer_vocab import family_vocab_jsonable, load_family_vocabs
 from carm.models.backbone import BackboneConfig, LlavaNextAdapter, Qwen25VLAdapter
+from carm.models.debug_backbone import DebugBackboneConfig, DeterministicDebugBackbone
 
 
 def _resolve_model_name(backbone_cfg: dict[str, Any], key: str, default_name: str) -> str:
@@ -64,11 +65,33 @@ def create_backbone(backbone_cfg: dict[str, Any]):
                 if backbone_cfg.get("cache_max_entries") is not None
                 else None
             ),
+            prefer_local_files_only=bool(backbone_cfg.get("prefer_local_files_only", True)),
         )
 
     if name == "llava_next_8b":
         return LlavaNextAdapter(
             model_name=_resolve_model_name(backbone_cfg, "llava_next_8b", "llava-hf/llava-v1.6-8b")
+        )
+
+    if name == "deterministic_debug_backbone":
+        debug_vocab = backbone_cfg.get("debug_vocab", ())
+        debug_action_vocab = backbone_cfg.get("debug_action_vocab", ())
+        default_debug_cfg = DebugBackboneConfig()
+        return DeterministicDebugBackbone(
+            DebugBackboneConfig(
+                hidden_size=int(backbone_cfg.get("hidden_size", 128)),
+                seq_len=int(backbone_cfg.get("seq_len", 32)),
+                vocab=(
+                    tuple(str(item) for item in debug_vocab)
+                    if isinstance(debug_vocab, (list, tuple)) and len(debug_vocab) > 0
+                    else default_debug_cfg.vocab
+                ),
+                action_vocab=(
+                    tuple(str(item) for item in debug_action_vocab)
+                    if isinstance(debug_action_vocab, (list, tuple)) and len(debug_action_vocab) > 0
+                    else default_debug_cfg.action_vocab
+                ),
+            )
         )
 
     raise ValueError(f"Unknown backbone name: {name}")

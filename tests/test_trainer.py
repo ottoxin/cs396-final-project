@@ -36,8 +36,8 @@ def _make_examples() -> list:
         ex.metadata = {
             "protocol_category": {
                 Action.REQUIRE_AGREEMENT: "C1",
-                Action.TRUST_VISION: "C3",
-                Action.TRUST_TEXT: "C4",
+                Action.TRUST_VISION: "C2",
+                Action.TRUST_TEXT: "C3",
                 Action.ABSTAIN: "C5",
             }[action]
         }
@@ -175,6 +175,7 @@ class TestTrainingScripts(unittest.TestCase):
                         "  weight_decay: 0.01",
                         "  early_stop_metric: task_success",
                         "  patience: 1",
+                        "  log_every_steps: 1",
                         "  device: auto",
                         "loss:",
                         "  action: true",
@@ -199,7 +200,8 @@ class TestTrainingScripts(unittest.TestCase):
                     "argv",
                     ["train_carm.py", "--config", str(cfg_path), "--train_jsonl", str(data_path), "--output_dir", str(train_out)],
                 ):
-                    with redirect_stdout(io.StringIO()):
+                    train_stdout = io.StringIO()
+                    with redirect_stdout(train_stdout):
                         train_carm.main()
 
             for name in (
@@ -207,10 +209,13 @@ class TestTrainingScripts(unittest.TestCase):
                 "resolved_config.json",
                 "best_val_metrics.json",
                 "train_history.jsonl",
+                "train_progress.jsonl",
                 "label_mapping.json",
                 "val_predictions_best.jsonl",
             ):
                 self.assertTrue((train_out / name).exists(), name)
+            self.assertIn('"phase": "train_progress"', train_stdout.getvalue())
+            self.assertIn('"avg_loss_total"', train_stdout.getvalue())
 
             best_metrics = json.loads((train_out / "best_val_metrics.json").read_text(encoding="utf-8"))
             self.assertIn("best_epoch", best_metrics)

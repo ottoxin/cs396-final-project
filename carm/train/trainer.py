@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ class TrainerConfig:
     early_stop_metric: str = "task_success"
     patience: int = 2
     device: str = "cpu"
+    log_every_steps: int = 50
     loss: LossConfig = field(default_factory=LossConfig)
 
 
@@ -138,8 +140,11 @@ class CARMTrainer:
 
     def _train_epoch(
         self,
+        epoch: int,
         loader: DataLoader[list[ConflictExample]],
         clean_index: dict[str, ConflictExample],
+        *,
+        progress_file: Any | None = None,
     ) -> dict[str, float]:
         metrics_accum: dict[str, float] = {
             "loss_total": 0.0,
@@ -149,6 +154,10 @@ class CARMTrainer:
             "loss_cf": 0.0,
         }
         examples_seen = 0
+        steps_done = 0
+        total_steps = len(loader)
+        log_every_steps = max(0, int(self.config.log_every_steps))
+        start_time = time.perf_counter()
 
         self.model.train()
         for batch in loader:
@@ -186,10 +195,38 @@ class CARMTrainer:
 
             batch_loss.backward()
             self.optimizer.step()
+            steps_done += 1
 
             for logs in batch_logs:
                 for key, value in logs.items():
                     metrics_accum[key] += value
+
+            should_log = log_every_steps > 0 and (steps_done % log_every_steps == 0 or steps_done == total_steps)
+            if should_log:
+                elapsed_sec = max(1e-9, time.perf_counter() - start_time)
+                avg_step_sec = elapsed_sec / max(1, steps_done)
+                eta_sec = max(0.0, (total_steps - steps_done) * avg_step_sec)
+                record = {
+                    "phase": "train_progress",
+                    "epoch": int(epoch),
+                    "step": int(steps_done),
+                    "total_steps": int(total_steps),
+                    "examples_seen": int(examples_seen),
+                    "pct_complete": float(steps_done / max(1, total_steps)),
+                    "elapsed_sec": float(elapsed_sec),
+                    "eta_sec": float(eta_sec),
+                    "examples_per_sec": float(examples_seen / elapsed_sec),
+                    "avg_loss_total": float(metrics_accum["loss_total"] / max(1, examples_seen)),
+                    "avg_loss_action": float(metrics_accum["loss_action"] / max(1, examples_seen)),
+                    "avg_loss_conflict": float(metrics_accum["loss_conflict"] / max(1, examples_seen)),
+                    "avg_loss_reliability": float(metrics_accum["loss_reliability"] / max(1, examples_seen)),
+                    "avg_loss_cf": float(metrics_accum["loss_cf"] / max(1, examples_seen)),
+                }
+                line = json.dumps(record, ensure_ascii=True)
+                print(line, flush=True)
+                if progress_file is not None:
+                    progress_file.write(line + "\n")
+                    progress_file.flush()
 
         return {
             key: (value / max(1, examples_seen))
@@ -247,12 +284,13 @@ class CARMTrainer:
         epochs_without_improvement = 0
 
         history_path = out_dir / "train_history.jsonl"
+        progress_path = out_dir / "train_progress.jsonl"
         best_predictions_path = out_dir / "val_predictions_best.jsonl"
         best_metrics_path = out_dir / "best_val_metrics.json"
 
-        with history_path.open("w", encoding="utf-8") as history_file:
+        with history_path.open("w", encoding="utf-8") as history_file, progress_path.open("w", encoding="utf-8") as progress_file:
             for epoch in range(1, self.config.epochs + 1):
-                train_metrics = self._train_epoch(loader, clean_index)
+                train_metrics = self._train_epoch(epoch, loader, clean_index, progress_file=progress_file)
                 self._clear_backbone_caches()
 
                 with tempfile.TemporaryDirectory(dir=out_dir) as td:

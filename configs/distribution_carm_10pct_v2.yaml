@@ -1,0 +1,52 @@
+extends: distribution_carm_10pct
+
+# Distribution CARM v2: fix trust_text collapse via action class weights.
+#
+# Root cause from RUN-EXP-dist_10pct: model never predicted trust_text (C3 action_acc=0.000).
+# The model conflates C3 (irrelevant image, informative text) with C5 (both weak).
+#
+# Fix: upweight trust_text in CrossEntropyLoss.
+# Action class order: [trust_vision=0, trust_text=1, require_agreement=2, abstain=3]
+# Weight 3.0 for trust_text forces the model to attend to C3 examples.
+#
+# Also: increase patience (model early-stopped at epoch 2 on a local optimum).
+
+model:
+  type: distribution
+  vocab_size: 35
+  cross_modal_feature_size: 5
+  trunk_hidden_size: 128
+  stage_hidden_size: 64
+
+experimental:
+  run_name: RUN-EXP-dist_10pct_v2
+  output_root: outputs/experimental
+  random_seed: 7
+  sampling_strategy: protocol_category_family
+  max_train_examples: 3148
+  max_val_examples: 674
+  max_test_examples: 674
+  training:
+    batch_size: 1
+    epochs: 15
+    lr: 0.001
+    weight_decay: 0.01
+    patience: 5
+    early_stop_metric: task_success_revised
+    log_every_steps: 100
+  loss:
+    lambda_vision_info: 1.0
+    lambda_text_info: 1.0
+    lambda_relation: 1.5
+    lambda_action: 3.0
+    lambda_cf: 0.0
+    margin_cf: 0.2
+    # trust_vision=1.0, trust_text=3.0, require_agreement=1.0, abstain=1.0
+    action_class_weights: [1.0, 3.0, 1.0, 1.0]
+
+runtime:
+  notes: |
+    Distribution CARM v2: same architecture as v1 but adds action class weights
+    [trust_vision=1, trust_text=3, require_agreement=1, abstain=1] to fix the
+    trust_text collapse (C3 action_acc=0.000 in v1). Also increases patience to 5
+    and max_epochs to 15 to allow convergence past the early local optimum at epoch 2.

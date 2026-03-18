@@ -157,16 +157,20 @@ class TestEvaluatorCompatibility(unittest.TestCase):
             self.assertIsNone(row["c2_text_only_correct"])
             self.assertIsNone(row["c2_multimodal_abstained"])
 
-    def test_backbone_backed_predictor_populates_c2_diagnostics(self) -> None:
+    def test_backbone_backed_predictor_populates_contradiction_diagnostics(self) -> None:
         example = make_base_examples()[2]
         example.metadata = {
-            "protocol_category": "C2",
+            "protocol_category": "C4",
             "c2_text_supported_answer": "yes",
         }
         example.vision_supported_target = "yes"
         example.text_supported_target = "no"
+        example.vision_info_state = "informative"
+        example.text_info_state = "informative"
+        example.pairwise_relation = "contradictory"
+        example.joint_answer = "<ABSTAIN>"
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "c2"
+            out = Path(td) / "c4"
             metrics = evaluate_predictor(
                 _BackboneBackedPredictor(),
                 [example],
@@ -184,14 +188,18 @@ class TestEvaluatorCompatibility(unittest.TestCase):
             self.assertEqual(row["vision_supported_target"], "yes")
             self.assertEqual(row["text_supported_target"], "no")
 
-    def test_backbone_backed_predictor_uses_legacy_metadata_fallback_for_c2_text_target(self) -> None:
+    def test_backbone_backed_predictor_uses_legacy_metadata_fallback_for_contradiction_text_target(self) -> None:
         example = make_base_examples()[2]
         example.metadata = {
-            "protocol_category": "C2",
+            "protocol_category": "C4",
             "c2_text_supported_answer": "no",
         }
+        example.vision_info_state = "informative"
+        example.text_info_state = "informative"
+        example.pairwise_relation = "contradictory"
+        example.joint_answer = "<ABSTAIN>"
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "c2_legacy"
+            out = Path(td) / "c4_legacy"
             metrics = evaluate_predictor(
                 _BackboneBackedPredictor(),
                 [example],
@@ -204,13 +212,17 @@ class TestEvaluatorCompatibility(unittest.TestCase):
             self.assertTrue(row["c2_text_only_correct"])
             self.assertEqual(row["text_supported_target"], "no")
 
-    def test_backbone_backed_predictor_keeps_partial_c2_diagnostics_when_text_target_missing(self) -> None:
+    def test_backbone_backed_predictor_keeps_partial_contradiction_diagnostics_when_text_target_missing(self) -> None:
         example = make_base_examples()[2]
-        example.metadata = {"protocol_category": "C2"}
+        example.metadata = {"protocol_category": "C4"}
         example.vision_supported_target = "yes"
         example.text_supported_target = None
+        example.vision_info_state = "informative"
+        example.text_info_state = "informative"
+        example.pairwise_relation = "contradictory"
+        example.joint_answer = "<ABSTAIN>"
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "c2_partial"
+            out = Path(td) / "c4_partial"
             metrics = evaluate_predictor(
                 _BackboneBackedPredictor(),
                 [example],

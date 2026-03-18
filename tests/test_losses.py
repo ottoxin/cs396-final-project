@@ -28,10 +28,10 @@ class TestLosses(unittest.TestCase):
         loss_bad = counterfactual_hinge(clean, corrupted_bad, CorruptModality.VISION, margin=0.2)
         self.assertGreater(float(loss_bad.item()), 0.0)
 
-    def test_build_targets_uses_updated_c2_abstain_label_and_fixed_order(self) -> None:
+    def test_build_targets_uses_updated_c4_abstain_label_and_fixed_order(self) -> None:
         example = ConflictExample(
-            example_id="c2",
-            base_id="c2",
+            example_id="c4",
+            base_id="c4",
             variant_id="clean",
             image_path="img.jpg",
             text_input="caption",
@@ -45,7 +45,7 @@ class TestLosses(unittest.TestCase):
             answer_type=AnswerType.BOOLEAN,
             oracle_action=Action.ABSTAIN,
             evidence_modality=EvidenceModality.BOTH,
-            metadata={"protocol_category": "C2", "c2_text_supported_answer": "no"},
+            metadata={"protocol_category": "C4", "c2_text_supported_answer": "no"},
         )
 
         targets = build_targets(example, device=torch.device("cpu"))

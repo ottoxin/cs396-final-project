@@ -44,6 +44,7 @@ def _resolved_training_config(train_cfg: dict[str, object]) -> dict[str, object]
         "early_stop_metric": str(train_cfg.get("early_stop_metric", "task_success")),
         "patience": int(train_cfg.get("patience", 2)),
         "device": str(train_cfg.get("device", "auto")),
+        "log_every_steps": int(train_cfg.get("log_every_steps", 50)),
     }
 
 
@@ -87,6 +88,7 @@ def main() -> None:
             early_stop_metric=str(resolved_training["early_stop_metric"]),
             patience=int(resolved_training["patience"]),
             device=resolved_device,
+            log_every_steps=int(resolved_training["log_every_steps"]),
             loss=loss_cfg,
         ),
     )

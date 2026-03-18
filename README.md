@@ -4,7 +4,7 @@ This repository now uses a Hugging Face first workflow.
 
 Canonical dataset source:
 - `nbso/carm-vqa-5way`
-- current realized release size: `44,982` rows (single HF split before local deterministic split export)
+- current realized release size: `44,982` rows across official HF splits (`train`, `validation`, `test`)
 
 Important count clarification:
 - `150,582 / 15,207 / 18,801` in `WRITEUP.md` are upstream retained clean-base counts from official VQAv2+COCO filtering.
@@ -50,16 +50,16 @@ This writes:
 - `data/cache/hf_5way/images/*.jpg`
 
 Protocol note:
-- HF prep now rewrites stale `C2` oracle labels to `abstain`, sets `vision_supported_target = gold_answer`, and derives `text_supported_target` from the contradictory caption when the caption explicitly supports an answer.
-- The current realized caption-derived export is `data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl` with companion manifest `data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.manifest.json`.
-- On the current HF revision, caption rules populate `8,931 / 8,992` C2 text targets (`99.32%`). The remaining `61` rows are written with `text_supported_target = null` and `metadata.text_supported_target_source = "missing_after_caption_rule"` rather than fabricated.
+- HF prep now prefers the official HF split layout and maps it into the repo's internal labels: `train -> train`, `validation -> val`, `test -> test_id`.
+- If the upstream dataset falls back to a single split in the future, the script still supports the older deterministic local re-splitting workflow.
+- HF prep aligns prepared labels to the HF category numbering, rewrites stale contradiction-row oracle labels to `abstain`, fills top-level `vision_supported_target`, `text_supported_target`, `vision_info_state`, `text_info_state`, `pairwise_relation`, and `joint_answer`, and records provenance/masking metadata for unresolved `C4` contradiction rows.
 
 ### 2) Tune thresholded baselines on `val`
 
 ```bash
 ./.venv/bin/python scripts/tune_baseline_thresholds.py \
   --config configs/hf_5way_qwen_caption_derived.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
   --output_dir outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived \
   --split val
 ```
@@ -74,7 +74,7 @@ This writes:
 ```bash
 ./.venv/bin/python scripts/run_baselines.py \
   --config configs/hf_5way_qwen_caption_derived.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
   --output_dir outputs/baselines/RUN-0010_hf5way_qwen_test_id_tuned_caption_derived \
   --tuned-thresholds-json outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/tuned_thresholds.json \
   --resume \
@@ -92,7 +92,7 @@ Active baseline set in the runner:
 
 Each baseline uses the same flat evaluator contract:
 - per-example core fields: input/gold metadata, `final_answer`, `abstained`, `confidence`, `correct`, `task_success`
-- optional extra fields are appended for richer predictors and C2 diagnostics such as `pred_action`, `r_v`, `r_t`, `audit`, `c2_vision_only_correct`, `c2_text_only_correct`, and `c2_multimodal_abstained`
+- optional extra fields are appended for richer predictors and contradiction diagnostics such as `pred_action`, `r_v`, `r_t`, `audit`, `c2_vision_only_correct`, `c2_text_only_correct`, and `c2_multimodal_abstained`
 
 Main artifacts:
 - per baseline directory:
@@ -109,7 +109,7 @@ Main artifacts:
   - `report/c2_diagnostics.md`
   - `report/risk_coverage_task_success_curves.json`
 
-`report/c2_diagnostics.*` now prints each C2 metric with its evaluable denominator, e.g. `0.8123 (n=8931)`, so partial C2 text-target coverage is explicit in the report rather than hidden behind `n/a`.
+`report/c2_diagnostics.*` is kept as a backward-compatible filename, but it now prints contradiction-category diagnostics for HF `C4` with each metric's evaluable denominator, e.g. `0.8123 (n=8931)`, so partial contradiction text-target coverage is explicit in the report rather than hidden behind `n/a`.
 
 The backbone now answers via free generation with family-specific prompting/parsing:
 - existence: `Answer yes or no only.`
@@ -133,16 +133,55 @@ Use the low-memory config for train/eval so the backbone keeps only a bounded re
 ```bash
 ./.venv/bin/python scripts/train_carm.py \
   --config configs/hf_5way_qwen_caption_derived_lowmem.yaml \
-  --train_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl \
+  --train_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
   --output_dir outputs/carm/RUN-0011_hf5way_qwen_caption_derived_train
 
 ./.venv/bin/python scripts/evaluate_carm.py \
   --config configs/hf_5way_qwen_caption_derived_lowmem.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_caption_derived_20260307.jsonl \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
   --output_dir outputs/carm/RUN-0011_hf5way_qwen_caption_derived_eval_test_id \
   --model_ckpt outputs/carm/RUN-0011_hf5way_qwen_caption_derived_train/carm_heads.pt \
   --split test_id
 ```
+
+### 6) Run the completed 10% structured experiment track and figure bundle
+
+The revised `NEW_PLAN` path uses the protocol-category-stratified 10% subset:
+- `data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.jsonl`
+- `data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.manifest.json`
+
+Structured four-head experimental run:
+
+```bash
+./.venv/bin/python scripts/run_experimental_small_data.py \
+  --config configs/experimental_10pct_qwen_protocol_family_rerun.yaml \
+  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.jsonl \
+  --output_dir outputs/experimental/RUN-EXP-0007_10pct_qwen_protocol
+```
+
+Old action-only control on the same subset:
+
+```bash
+bash scripts/run_carm_quest.sh \
+  outputs/carm/RUN-CTRL-0001_10pct_protocol \
+  configs/hf_5way_qwen_caption_derived_10pct_protocol_family_lowmem.yaml \
+  data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.jsonl \
+  data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.manifest.json \
+  test_id
+```
+
+Generate the non-ablation figure bundle and summary:
+
+```bash
+./.venv/bin/python scripts/plots/plot_new_plan_10pct_analysis.py
+```
+
+Frozen outputs from the completed stage:
+- structured run: `outputs/experimental/RUN-EXP-0007_10pct_qwen_protocol/`
+- old action-only control: `outputs/carm/RUN-CTRL-0001_10pct_protocol/`
+- figure bundle and summary: `outputs/analysis/RUN-ANALYSIS-0001_10pct_protocol/`
+
+The current non-ablation outcome is that the old action-only control beats the structured four-head model on final task-success/action metrics on this 10% run, while the structured model learns vision informativeness better than text informativeness or pairwise relation. Ablations are intentionally deferred.
 
 ## Repository Layout
 

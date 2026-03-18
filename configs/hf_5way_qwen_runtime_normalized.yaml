@@ -7,4 +7,4 @@ data:
     pilot_output_jsonl: data/cache/hf_5way/prepared/carm_vqa_5way_runtime_normalized_20260307.jsonl
 
 runtime:
-  notes: Local runtime-normalized fallback export with protocol-correct C2 action labels and missing explicit C2 text target.
+  notes: Local runtime-normalized fallback export with HF-aligned category numbering, corrected contradiction action labels, and missing explicit contradiction text targets.

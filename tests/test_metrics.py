@@ -55,18 +55,11 @@ class TestMetrics(unittest.TestCase):
         self.assertFalse(
             task_success_single(
                 {
-                    "oracle_action": "abstain",
+                    "oracle_action": "trust_vision",
                     "protocol_category": "C2",
-                    "abstained": False,
-                    "correct": True,
-                }
-            )
-        )
-        self.assertTrue(
-            task_success_single(
-                {
-                    "oracle_action": "abstain",
-                    "protocol_category": "C2",
+                    "vision_info_state": "informative",
+                    "text_info_state": "uninformative",
+                    "pairwise_relation": "asymmetric",
                     "abstained": True,
                     "correct": False,
                 }
@@ -76,7 +69,23 @@ class TestMetrics(unittest.TestCase):
             task_success_single(
                 {
                     "oracle_action": "trust_vision",
+                    "protocol_category": "C2",
+                    "vision_info_state": "informative",
+                    "text_info_state": "uninformative",
+                    "pairwise_relation": "asymmetric",
+                    "abstained": False,
+                    "correct": True,
+                }
+            )
+        )
+        self.assertTrue(
+            task_success_single(
+                {
+                    "oracle_action": "trust_text",
                     "protocol_category": "C3",
+                    "vision_info_state": "uninformative",
+                    "text_info_state": "informative",
+                    "pairwise_relation": "asymmetric",
                     "abstained": False,
                     "correct": True,
                 }
@@ -85,10 +94,26 @@ class TestMetrics(unittest.TestCase):
         self.assertFalse(
             task_success_single(
                 {
-                    "oracle_action": "trust_text",
+                    "oracle_action": "abstain",
                     "protocol_category": "C4",
-                    "abstained": True,
+                    "vision_info_state": "informative",
+                    "text_info_state": "informative",
+                    "pairwise_relation": "contradictory",
+                    "abstained": False,
                     "correct": True,
+                }
+            )
+        )
+        self.assertTrue(
+            task_success_single(
+                {
+                    "oracle_action": "abstain",
+                    "protocol_category": "C4",
+                    "vision_info_state": "informative",
+                    "text_info_state": "informative",
+                    "pairwise_relation": "contradictory",
+                    "abstained": True,
+                    "correct": False,
                 }
             )
         )
@@ -116,7 +141,10 @@ class TestMetrics(unittest.TestCase):
         records = [
             {
                 "oracle_action": "trust_vision",
-                "protocol_category": "C3",
+                "protocol_category": "C2",
+                "vision_info_state": "informative",
+                "text_info_state": "uninformative",
+                "pairwise_relation": "asymmetric",
                 "abstained": False,
                 "correct": True,
                 "confidence": 0.9,
@@ -148,10 +176,13 @@ class TestMetrics(unittest.TestCase):
         self.assertAlmostEqual(action_accuracy(records) or 0.0, 0.75, places=6)
         self.assertAlmostEqual(action_macro_f1(records) or 0.0, 2.0 / 3.0, places=6)
 
-    def test_c2_task_success_is_identical_for_flat_and_action_aware_rows(self) -> None:
+    def test_c4_task_success_is_identical_for_flat_and_action_aware_rows(self) -> None:
         flat = {
             "oracle_action": "abstain",
-            "protocol_category": "C2",
+            "protocol_category": "C4",
+            "vision_info_state": "informative",
+            "text_info_state": "informative",
+            "pairwise_relation": "contradictory",
             "abstained": False,
             "correct": True,
         }
@@ -236,7 +267,10 @@ class TestMetrics(unittest.TestCase):
                 "final_answer": "<ABSTAIN>",
                 "split": "val",
                 "family": "existence",
-                "protocol_category": "C2",
+                "protocol_category": "C4",
+                "vision_info_state": "informative",
+                "text_info_state": "informative",
+                "pairwise_relation": "contradictory",
                 "c2_vision_only_correct": True,
                 "c2_text_only_correct": False,
                 "c2_multimodal_abstained": True,
@@ -255,7 +289,7 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(metrics["task_success_per_split"]["val"], 1.0)
         self.assertEqual(metrics["task_success_per_split"]["test_id"], 1.0)
         self.assertEqual(metrics["task_success_per_category"]["C1"], 1.0)
-        self.assertEqual(metrics["task_success_per_category"]["C2"], 1.0)
+        self.assertEqual(metrics["task_success_per_category"]["C4"], 1.0)
         self.assertEqual(metrics["task_success_per_category"]["C5"], 1.0)
         self.assertEqual(metrics["accuracy_per_category"]["C1"], 1.0)
         self.assertEqual(metrics["accuracy_per_category"]["C5"], 0.0)
@@ -276,14 +310,17 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(metrics["example_counts_by_split"]["val"], 2)
         self.assertEqual(metrics["example_counts_by_category"]["C5"], 1)
 
-    def test_c2_diagnostics_return_none_when_unavailable(self) -> None:
+    def test_c4_diagnostics_return_none_when_unavailable(self) -> None:
         metrics = summarize_metrics(
             [
                 {
                     "oracle_action": "abstain",
                     "abstained": True,
                     "correct": False,
-                    "protocol_category": "C2",
+                    "protocol_category": "C4",
+                    "vision_info_state": "informative",
+                    "text_info_state": "informative",
+                    "pairwise_relation": "contradictory",
                     "c2_multimodal_abstained": True,
                 }
             ]

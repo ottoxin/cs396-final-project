@@ -21,25 +21,25 @@ ACTION_ALIAS = {
 
 STATE_TO_CATEGORY = {
     ("clean", "clean"): "C1",
-    ("clean", "different"): "C2",
-    ("clean", "irrelevant"): "C3",
-    ("irrelevant", "clean"): "C4",
+    ("clean", "irrelevant"): "C2",
+    ("irrelevant", "clean"): "C3",
+    ("clean", "different"): "C4",
     ("irrelevant", "irrelevant"): "C5",
 }
 
 CATEGORY_TO_ACTION = {
     "C1": "require_agreement",
-    "C2": "abstain",
-    "C3": "trust_vision",
-    "C4": "trust_text",
+    "C2": "trust_vision",
+    "C3": "trust_text",
+    "C4": "abstain",
     "C5": "abstain",
 }
 
 CATEGORY_TO_SCHEMA = {
     "C1": ("clean", "none", 0, "require_agreement"),
-    "C2": ("text_edit", "text", 1, "abstain"),
-    "C3": ("text_edit", "text", 1, "trust_vision"),
-    "C4": ("vision_corrupt", "vision", 1, "trust_text"),
+    "C2": ("text_edit", "text", 1, "trust_vision"),
+    "C3": ("vision_corrupt", "vision", 1, "trust_text"),
+    "C4": ("text_edit", "text", 1, "abstain"),
     "C5": ("both", "both", 1, "abstain"),
 }
 

@@ -15,7 +15,7 @@ from carm.data.answer_vocab import (
 from carm.data.schema import Family
 from carm.data.vqa_coco import infer_family
 from carm.models.features import extract_probe_features
-from carm.models.interfaces import BackboneResult, ProbeResult
+from carm.models.interfaces import BackboneResult, FreeformGenerationResult, ProbeResult
 
 
 def _normalize_color_vocab(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
@@ -103,6 +103,7 @@ class Qwen25VLAdapter:
         torch_dtype: str = "auto",
         cache_results: bool = True,
         cache_max_entries: int | None = None,
+        prefer_local_files_only: bool = True,
     ) -> None:
         self.model_name = model_name or "Qwen/Qwen2.5-VL-7B-Instruct"
         self.config = config or BackboneConfig()
@@ -110,6 +111,7 @@ class Qwen25VLAdapter:
         self.dtype = self._resolve_torch_dtype(torch_dtype, self.device.type)
         self.cache_results = bool(cache_results)
         self.cache_max_entries = int(cache_max_entries) if cache_max_entries is not None and int(cache_max_entries) > 0 else None
+        self.prefer_local_files_only = bool(prefer_local_files_only)
         self._project_root = Path(__file__).resolve().parents[2]
 
         self._model: Any | None = None
@@ -181,24 +183,55 @@ class Qwen25VLAdapter:
                 "Install/update with: pip install 'transformers>=4.57.0'"
             ) from exc
 
-        try:
-            self._processor = AutoProcessor.from_pretrained(self.model_name)
-        except ImportError as exc:  # pragma: no cover - optional runtime deps
-            raise RuntimeError(
-                "Qwen adapter processor load failed. Install vision deps with: pip install torchvision"
-            ) from exc
+        self._processor = self._load_hf_artifact(
+            AutoProcessor.from_pretrained,
+            artifact_name="processor",
+            import_error_hint="Install vision deps with: pip install torchvision",
+        )
 
         self._tokenizer = getattr(self._processor, "tokenizer", None)
         if self._tokenizer is None:
             raise RuntimeError("Loaded processor does not expose a tokenizer.")
 
-        self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            self.model_name,
+        self._model = self._load_hf_artifact(
+            Qwen2_5_VLForConditionalGeneration.from_pretrained,
+            artifact_name="model",
             torch_dtype=self.dtype,
             low_cpu_mem_usage=True,
         )
         self._model.to(self.device)
         self._model.eval()
+
+    def _load_hf_artifact(
+        self,
+        loader: Any,
+        *,
+        artifact_name: str,
+        import_error_hint: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        local_exc: Exception | None = None
+        if self.prefer_local_files_only:
+            try:
+                return loader(self.model_name, local_files_only=True, **kwargs)
+            except Exception as exc:  # pragma: no cover - depends on local cache state
+                local_exc = exc
+
+        try:
+            return loader(self.model_name, **kwargs)
+        except Exception as exc:
+            if isinstance(exc, ImportError) or isinstance(local_exc, ImportError):  # pragma: no cover - optional runtime deps
+                hint = f" {import_error_hint}" if import_error_hint else ""
+                raise RuntimeError(
+                    f"Qwen adapter {artifact_name} load failed ({exc.__class__.__name__}: {exc}).{hint}"
+                ) from exc
+            if local_exc is not None:
+                raise RuntimeError(
+                    f"Qwen adapter {artifact_name} load failed after local-cache and online attempts. "
+                    f"local_cache_error={local_exc.__class__.__name__}: {local_exc}; "
+                    f"online_error={exc.__class__.__name__}: {exc}"
+                ) from exc
+            raise
 
     def _resolve_image_path(self, image_path: str) -> Path:
         candidate = Path(image_path)
@@ -487,6 +520,33 @@ class Qwen25VLAdapter:
         }
         return hidden_fmt, dist, answer_text, generated_text, result_meta
 
+    def generate_freeform(self, prompt: str, image: str | None = None) -> FreeformGenerationResult:
+        self._ensure_loaded()
+        assert self._model is not None
+        assert self._tokenizer is not None
+
+        image_path = self._resolve_image_path(image) if image else None
+        inputs = self._prepare_inputs(prompt, image_path)
+        with torch.inference_mode():
+            generated = self._model.generate(
+                **inputs,
+                max_new_tokens=int(self.config.max_new_tokens),
+                do_sample=False,
+                output_scores=True,
+                return_dict_in_generate=True,
+            )
+
+        prompt_len = int(inputs["input_ids"].shape[1])
+        sequences = generated.sequences
+        generated_tokens = sequences[:, prompt_len:]
+        generated_text = self._tokenizer.decode(generated_tokens[0].detach().cpu().tolist(), skip_special_tokens=True)
+        confidence = self._sequence_confidence(getattr(generated, "scores", None), generated_tokens[0])
+        return FreeformGenerationResult(
+            text=generated_text.strip(),
+            confidence=confidence,
+            metadata={"generator": self.name},
+        )
+
     @staticmethod
     def _clone_backbone_result(result: BackboneResult) -> BackboneResult:
         return BackboneResult(
@@ -559,4 +619,7 @@ class LlavaNextAdapter:
         raise NotImplementedError("LlavaNextAdapter is a Phase A stub. Runnable inference is next-wave work.")
 
     def run_probe_text_only(self, text: str, question: str) -> ProbeResult:
+        raise NotImplementedError("LlavaNextAdapter is a Phase A stub. Runnable inference is next-wave work.")
+
+    def generate_freeform(self, prompt: str, image: str | None = None) -> FreeformGenerationResult:
         raise NotImplementedError("LlavaNextAdapter is a Phase A stub. Runnable inference is next-wave work.")

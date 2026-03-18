@@ -1,0 +1,28 @@
+extends: hf_5way_qwen_caption_derived_10pct_protocol_family_lowmem
+
+experimental:
+  run_name: RUN-EXP-0006_preflight_qwen_protocol
+  output_root: outputs/experimental
+  random_seed: 7
+  sampling_strategy: protocol_category_family
+  max_train_examples: 15
+  max_val_examples: 15
+  max_test_examples: 15
+  training:
+    batch_size: 1
+    epochs: 1
+    lr: 0.001
+    weight_decay: 0.01
+    patience: 1
+    early_stop_metric: task_success_revised
+    log_every_steps: 5
+  loss:
+    lambda_vision_info: 1.0
+    lambda_text_info: 1.0
+    lambda_relation: 1.0
+    lambda_action: 1.0
+    lambda_cf: 0.0
+    margin_cf: 0.2
+
+runtime:
+  notes: Short GPU preflight for the corrected protocol-category-stratified 10 percent subset with real multimodal Qwen smoke checks.

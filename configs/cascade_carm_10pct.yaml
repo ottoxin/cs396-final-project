@@ -1,0 +1,56 @@
+extends: hf_5way_qwen_caption_derived_10pct_protocol_family
+
+# Cascade CARM: hierarchical prediction with cross-modal agreement features.
+#
+# Key changes vs. flat 4-head model (RUN-EXP-0007):
+#   1. model.type=cascade — hierarchical prediction: info → relation → action
+#   2. cross_modal_feature_size=5 — adds answer-agreement signal (binary, soft,
+#      per-modality confidence, both-confident-disagree) which is the primary
+#      discriminative signal for C1 vs C4 vs C2/C3/C5
+#   3. lambda_action=3.0 — upweights primary objective relative to auxiliaries
+#   4. epochs=10, patience=3 — sufficient training budget for multi-task convergence
+
+model:
+  type: cascade
+  hidden_size: 128
+  probe_feature_size: 3
+  cross_modal_feature_size: 5
+  pool: mean
+  trunk_hidden_size: 128
+  stage_hidden_size: 64
+
+experimental:
+  run_name: RUN-EXP-cascade_10pct
+  output_root: outputs/experimental
+  random_seed: 7
+  sampling_strategy: protocol_category_family
+  max_train_examples: 3148
+  max_val_examples: 674
+  max_test_examples: 674
+  training:
+    batch_size: 1
+    epochs: 10
+    lr: 0.001
+    weight_decay: 0.01
+    patience: 3
+    early_stop_metric: task_success_revised
+    log_every_steps: 100
+  loss:
+    lambda_vision_info: 1.0
+    lambda_text_info: 1.0
+    lambda_relation: 1.5
+    lambda_action: 3.0
+    lambda_cf: 0.0
+    margin_cf: 0.2
+
+backbone:
+  cache_results: true
+  cache_max_entries: 512
+
+runtime:
+  notes: |
+    Cascade CARM with cross-modal agreement features (5-dim phi_cross),
+    hierarchical prediction stages (info->relation->action), and action-upweighted
+    loss (lambda_action=3.0). Addresses the three root causes of flat model failure:
+    (1) no cross-modal agreement signal, (2) flat multi-task competing equally,
+    (3) insufficient training epochs.

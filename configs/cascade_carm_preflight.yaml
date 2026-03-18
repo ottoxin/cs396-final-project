@@ -1,0 +1,19 @@
+extends: cascade_carm_10pct
+
+experimental:
+  run_name: RUN-EXP-cascade_preflight
+  output_root: outputs/experimental
+  random_seed: 7
+  sampling_strategy: protocol_category_family
+  max_train_examples: 15
+  max_val_examples: 15
+  max_test_examples: 15
+  training:
+    batch_size: 1
+    epochs: 2
+    lr: 0.001
+    patience: 2
+    log_every_steps: 5
+
+runtime:
+  notes: Preflight for cascade CARM — validates pipeline on 15-example subset before full GPU run.

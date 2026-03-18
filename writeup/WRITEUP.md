@@ -1,5 +1,26 @@
 # Conflict Suite v1 Data Construction Note
 
+## Zotero Sync For Proposal References
+
+The proposal bibliography in this folder is now wired to the private Zotero `CS 396` collection.
+
+- `cs396_zotero.bib` is the synced BibTeX export from Zotero.
+- `ref.bib` is a generated compatibility layer that preserves the citekeys already used in `carm_proposal.tex`.
+- `.zotero.env` is intentionally ignored because it holds the Zotero API key needed for this private collection.
+
+Typical commands from `cs396-final-project/writeup`:
+
+```bash
+cp .zotero.env.example .zotero.env
+# add your real Zotero API key to .zotero.env
+
+make zotero-sync
+make pdf
+make pdf-sync
+```
+
+`make zotero-sync` refreshes both bibliography files. `make pdf-sync` refreshes the Zotero export and then rebuilds `carm_proposal.tex`.
+
 ## Dataset Construction
 
 ### Raw data gathering
@@ -17,7 +38,7 @@ In the current official-data build with consistency filtering enabled, the base-
 
 ### CARM Supervision Refinement (Five-Category Protocol)
 
-The project objective is to train CARM to choose among four entropy-conditioned actions: `ABSTAIN`, `TRUST_VISION`, `TRUST_TEXT`, and `REQUIRE_AGREEMENT` (with abstention on disagreement). Deterministic supervision is provided through a fixed five-category protocol with category-to-action mapping C1 -> `REQUIRE_AGREEMENT`, C2/C5 -> `ABSTAIN`, C3 -> `TRUST_VISION`, and C4 -> `TRUST_TEXT`. The formal action mapping is aligned with Appendix A4.
+The project objective is to train CARM to choose among four entropy-conditioned actions: `ABSTAIN`, `TRUST_VISION`, `TRUST_TEXT`, and `REQUIRE_AGREEMENT` (with abstention on disagreement). Deterministic supervision is provided through a fixed five-category protocol aligned to the published HF dataset numbering: C1 -> `REQUIRE_AGREEMENT`, C2 -> `TRUST_VISION`, C3 -> `TRUST_TEXT`, and C4/C5 -> `ABSTAIN`. The formal action mapping is aligned with Appendix A4.
 
 For planning and release accounting, we distinguish the nominal balanced target from the realized public dataset. The nominal refined target is `45,000` examples under equal family-category balancing, while the current HF release used by the active workflow contains `44,982` rows (`nbso/carm-vqa-5way`) after realized filtering and moderation outcomes. Detailed category definitions, balancing tables, split-allocation arithmetic, and caption-edit workload accounting are moved to Appendix A6.
 
@@ -35,7 +56,7 @@ $$
 
 This objective is aligned with the role of CARM at inference time. Rather than predicting the final answer token directly, CARM is trained to choose the correct arbitration rule for combining, selecting, or rejecting modality-specific evidence.
 
-The action `require_agreement` is treated as a distinct policy label during training. At inference time, this action induces a conditional rule: the system returns an answer only when the vision-only and text-only probes agree under family-specific normalization; otherwise, it abstains. This allows the model to distinguish cases in which agreement between modalities is itself the criterion for answering from cases in which one modality should be trusted directly or the system should abstain outright. Under the revised five-category protocol, this agreement label is reserved for the clean consistency case (C1), while contradiction cases (C2) are supervised directly as `abstain` and analyzed with separate unimodal-versus-multimodal diagnostics.
+The action `require_agreement` is treated as a distinct policy label during training. At inference time, this action induces a conditional rule: the system returns an answer only when the vision-only and text-only probes agree under family-specific normalization; otherwise, it abstains. This allows the model to distinguish cases in which agreement between modalities is itself the criterion for answering from cases in which one modality should be trusted directly or the system should abstain outright. Under the revised five-category protocol, this agreement label is reserved for the clean consistency case (C1), while contradiction cases (HF C4) are supervised directly as `abstain` and analyzed with separate unimodal-versus-multimodal diagnostics.
 
 We freeze the backbone throughout training in order to isolate the contribution of the arbitration layer. This design keeps the learning problem focused on modality selection under conflict, rather than broad end-to-end adaptation of the underlying VLM. We optimize the trainable heads with Adam-style updates and use held-out decision quality, especially validation task success, as the primary model-selection criterion. Alongside task success, we report action accuracy, macro-F1, and selective-prediction metrics as secondary diagnostics.
 
@@ -57,11 +78,19 @@ The updated evaluation protocol uses the same constructed dataset with determini
 
 The Qwen backbone answer path is open-generation rather than closed-vocabulary next-token selection. For each question family, the model is prompted to answer in a constrained natural form (`yes/no`, a single integer, or a single color word), after which the generated text is canonicalized before evaluation. This change is critical for count questions, where closed-vocabulary selection produced invalid behavior in earlier runs.
 
-Evaluation is record-centric: each baseline emits standardized per-example core outputs containing input/gold context, `final_answer`, `abstained`, `confidence`, `correct`, and `task_success`, from which all aggregate quantities are derived. When evaluating CARM, optional diagnostic fields such as `pred_action`, `pred_conflict_type`, `r_v`, `r_t`, `audit`, and the C2-specific fields `c2_vision_only_correct`, `c2_text_only_correct`, and `c2_multimodal_abstained` may also be appended, but baseline comparison does not depend on those extra fields. Under the finalized C2 contract, prepared rows may also store top-level `vision_supported_target` and `text_supported_target`; evaluation reads those fields first and falls back to legacy `metadata.c2_text_supported_answer` only when analyzing older rows. In the current caption-derived local export, `text_supported_target` is derived directly from the contradictory caption when the caption supports an answer, and otherwise left null with `metadata.text_supported_target_source = "missing_after_caption_rule"` so the coverage boundary remains explicit.
+Evaluation is record-centric: each baseline emits standardized per-example core outputs containing input/gold context, `final_answer`, `abstained`, `confidence`, `correct`, and `task_success`, from which all aggregate quantities are derived. When evaluating CARM, optional diagnostic fields such as `pred_action`, `pred_conflict_type`, `r_v`, `r_t`, `audit`, and the backward-compatible contradiction aliases `c2_vision_only_correct`, `c2_text_only_correct`, and `c2_multimodal_abstained` may also be appended, but baseline comparison does not depend on those extra fields. Under the updated supervision contract, prepared rows store top-level `vision_supported_target`, `text_supported_target`, `vision_info_state`, `text_info_state`, `pairwise_relation`, and `joint_answer` in addition to the normalized `oracle_action`. Evaluation reads these explicit fields first. In the refreshed full-data local export, C1/C2/C3/C5 rows are filled deterministically from category design, while C4 text targets are derived from the contradictory caption and marked with explicit provenance and derivation status metadata. This keeps the coverage boundary visible instead of silently treating unresolved C4 rows as fully supervised contradiction cases.
 
-Metric choice follows the simplified baseline interface. Headline reporting uses raw `accuracy`, `coverage`, `accuracy_on_answered`, `task_success`, and selective-prediction summaries from the task-success risk-coverage curve (`Risk@target`, `AURC`). Category-level C1-C5 breakdowns remain required because aggregate metrics alone can hide protocol-specific failure modes. For flat baselines, task success is intentionally outcome-based: C1, C3, and C4 succeed only when the method answers correctly without abstaining, while C2 and C5 succeed only under abstention. Action-aware routing diagnostics remain optional analyses for CARM outputs rather than headline baseline metrics. For C2 specifically, we report secondary diagnostics for vision-only accuracy, text-only accuracy, and multimodal abstention rate rather than folding those behaviors into the headline benchmark score.
+Metric choice follows the simplified baseline interface. Headline reporting uses raw `accuracy`, `coverage`, `accuracy_on_answered`, `task_success`, and selective-prediction summaries from the task-success risk-coverage curve (`Risk@target`, `AURC`). Category-level C1-C5 breakdowns remain required because aggregate metrics alone can hide protocol-specific failure modes. For flat baselines, task success is intentionally outcome-based: C1, C2, and C3 succeed only when the method answers correctly without abstaining, while C4 and C5 succeed only under abstention. Action-aware routing diagnostics remain optional analyses for CARM outputs rather than headline baseline metrics. For contradiction rows (HF C4), we report secondary diagnostics for vision-only accuracy, text-only accuracy, and multimodal abstention rate rather than folding those behaviors into the headline benchmark score.
 
 To keep the main text concise, formal metric definitions, mathematical expressions, confidence standardization, and the locked validation-to-test workflow are provided in Appendix B.
+
+## 10 Percent Structured Experiment Snapshot
+
+We ran the revised non-ablation comparison on the protocol-category-stratified 10% subset (`4,496` examples total; `900/900/900/900/896` for `C1` through `C5`). The comparison included the answer-forcing backbone reference, the selective baselines (`agreement_check`, `confidence_threshold`, `prompt_only_abstain`, and `probe_heuristic`), the old action-only CARM control, and the new structured four-head CARM that predicts `vision_info_state`, `text_info_state`, `pairwise_relation`, and `joint_action`. All outputs are frozen under `outputs/experimental/RUN-EXP-0007_10pct_qwen_protocol/`, `outputs/carm/RUN-CTRL-0001_10pct_protocol/`, and the figure bundle under `outputs/analysis/RUN-ANALYSIS-0001_10pct_protocol/`.
+
+The main result of this stage is negative for the structured head on final decision quality. The old action-only control reached `task_success=0.6098`, `action_accuracy=0.5059`, and `action_macro_f1=0.4633`, while the structured four-head model reached `task_success_revised=0.5682` and `action_accuracy=0.3961`. Among the non-learned baselines, `agreement_check` was the strongest selective baseline with `task_success_revised=0.5712`, outperforming `confidence_threshold` (`0.4718`), `prompt_only_abstain` (`0.4095`), and `probe_heuristic` (`0.4614`). The answer-forcing `backbone_direct` baseline achieved `answer_accuracy=0.6528` but only `task_success_revised=0.4674`, which is consistent with direct multimodal answering collapsing on contradiction and both-weak cases.
+
+The structured model still learned some intermediate structure. It reached `vision_info_accuracy=0.8501`, but `text_info_accuracy=0.5089` and `relation_accuracy=0.4733` remained much weaker. This gap suggests that the revised label contract is coherent enough to learn the easiest intermediate target, but the current feature set or loss structure is still insufficient for reliable text-side informativeness and contradiction modeling. C4 behavior remains especially weak: multimodal abstention in C4 is only `0.3407`, well below the intended contradiction policy. For this reason, the current figure/diagnostic bundle should be treated as the close of the non-ablation validation stage rather than as evidence that the structured formulation is already superior. The next step after this snapshot is to inspect the figures and failure examples, then revise the feature or objective design before resuming the intentionally deferred ablation panel.
 
 ---
 
@@ -89,7 +118,7 @@ The `text_edit` variant applies family-aligned textual perturbation. Existence e
 
 ### A4. Deterministic Oracle Action Assignment
 
-Under the refined five-category protocol, oracle action labels are deterministic functions of category: C1 (clean text + clean image) maps to `REQUIRE_AGREEMENT`, C2 (`DIFFERENT` text + clean image) maps to `ABSTAIN`, C3 (`IRRELEVANT` text + clean image) maps to `TRUST_VISION`, C4 (clean text + irrelevant image) maps to `TRUST_TEXT`, and C5 (`IRRELEVANT` text + irrelevant image) maps to `ABSTAIN`. For backward compatibility with legacy v1 data lacking subtype/category metadata, the fallback policy remains modality-based (`none` -> `REQUIRE_AGREEMENT`, `text` -> `TRUST_VISION`, `vision` -> `TRUST_TEXT`, `both/ambiguous` -> `ABSTAIN`).
+Under the refined five-category protocol, oracle action labels are deterministic functions of category: C1 (clean text + clean image) maps to `REQUIRE_AGREEMENT`, C2 (`IRRELEVANT` text + clean image) maps to `TRUST_VISION`, C3 (clean text + irrelevant image) maps to `TRUST_TEXT`, C4 (`DIFFERENT` text + clean image) maps to `ABSTAIN`, and C5 (`IRRELEVANT` text + irrelevant image) maps to `ABSTAIN`. For backward compatibility with legacy v1 data lacking subtype/category metadata, the fallback policy remains modality-based (`none` -> `REQUIRE_AGREEMENT`, `text` -> `TRUST_VISION`, `vision` -> `TRUST_TEXT`, `both/ambiguous` -> `ABSTAIN`).
 
 ### A5. Split Assignment, OOD Overrides, and Manifests
 
@@ -99,37 +128,39 @@ OOD assignment then follows fixed priority: records in the held-out family are a
 
 ### A6. Five-Category Supervision, Balancing, and Workload Accounting
 
-The five-category supervision protocol specifies the text and image condition pair for each category and fixes the oracle action accordingly. This mapping is the operational interface used for deterministic action supervision in both baseline and CARM training workflows.
+The five-category supervision protocol specifies the text and image condition pair for each category and fixes not only the joint action but also the modality-conditional support labels used for structured analysis. This mapping is now the operational interface used for deterministic action supervision and for top-level prepared targets.
 
-| Category | Text condition | Image condition | Oracle action | Expected behavior | LLM caption edit |
-| --- | --- | --- | --- | --- | --- |
-| C1 | clean | clean | `REQUIRE_AGREEMENT` | answer correctly under consistent evidence | no |
-| C2 | `DIFFERENT` | clean | `ABSTAIN` | contradiction case; abstain under multimodal conflict | yes |
-| C3 | `IRRELEVANT` | clean | `TRUST_VISION` | trust vision answer | yes |
-| C4 | clean | irrelevant | `TRUST_TEXT` | trust text answer | no |
-| C5 | `IRRELEVANT` | irrelevant | `ABSTAIN` | abstain (neither modality provides reliable evidence) | yes |
+| Category | Text condition | Image condition | Vision target | Text target | Vision info | Text info | Pairwise relation | Joint action | Joint answer |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C1 | clean | clean | `gold_answer` | `gold_answer` | informative | informative | consistent | `REQUIRE_AGREEMENT` | `gold_answer` |
+| C2 | `IRRELEVANT` | clean | `gold_answer` | `null` | informative | uninformative | asymmetric | `TRUST_VISION` | `gold_answer` |
+| C3 | clean | irrelevant | `null` | `gold_answer` | uninformative | informative | asymmetric | `TRUST_TEXT` | `gold_answer` |
+| C4 | `DIFFERENT` | clean | `gold_answer` | contradictory-caption answer when derivable | informative | informative | contradictory | `ABSTAIN` | `<ABSTAIN>` |
+| C5 | `IRRELEVANT` | irrelevant | `null` | `null` | uninformative | uninformative | both_weak | `ABSTAIN` | `<ABSTAIN>` |
+
+Operationally, the current full-data preparation procedure uses the following derivation order. First, C1/C2/C3/C5 targets are filled deterministically from `gold_answer` and category semantics, while irrelevant-modality targets remain `null`. Second, C4 sets `vision_supported_target = gold_answer`, `joint_action = abstain`, `joint_answer = <ABSTAIN>`, and derives `text_supported_target` from `question + perturbed_caption`. Third, C4 rows are marked `partial` rather than silently trusted when the contradictory-caption target is missing or agrees with the vision-side target after canonicalization. In the refreshed `44,982`-row local export, `7,383 / 8,992` C4 rows satisfy this stricter validated-contradiction condition, `61` remain missing, and `1,548` produce agreeing modality targets and are therefore unsuitable for contradiction-sensitive supervision without further review.
 
 Under the nominal refined plan, the target dataset size is `45,000` with equal balancing across three families and five categories. The currently published HF release used in the active workflow contains `44,982` rows (`nbso/carm-vqa-5way`) due to realized post-filtering and moderation outcomes.
 
 | Family | C1 | C2 | C3 | C4 | C5 | Family total |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `existence` | 3,000 | 2,995 | 2,995 | 3,000 | 2,997 | 14,987 |
+| `existence` | 3,000 | 2,995 | 3,000 | 2,995 | 2,997 | 14,987 |
 | `count` | 3,000 | 2,998 | 3,000 | 3,000 | 3,000 | 14,998 |
-| `attribute_color` | 3,000 | 2,999 | 2,999 | 3,000 | 2,999 | 14,997 |
-| Category total | 9,000 | 8,992 | 8,994 | 9,000 | 8,996 | 44,982 |
+| `attribute_color` | 3,000 | 3,001 | 3,000 | 2,997 | 2,999 | 14,997 |
+| Category total | 9,000 | 8,994 | 9,000 | 8,992 | 8,996 | 44,982 |
 
 The realized split allocation for the current prepared release is summarized below.
 
 | Category / Dataset | Train | Val | Test (`test_id`) | Total |
 | --- | ---: | ---: | ---: | ---: |
 | C1 | 6,300 | 1,350 | 1,350 | 9,000 |
-| C2 | 6,293 | 1,347 | 1,352 | 8,992 |
-| C3 | 6,295 | 1,348 | 1,351 | 8,994 |
-| C4 | 6,300 | 1,350 | 1,350 | 9,000 |
+| C2 | 6,295 | 1,348 | 1,351 | 8,994 |
+| C3 | 6,300 | 1,350 | 1,350 | 9,000 |
+| C4 | 6,293 | 1,347 | 1,352 | 8,992 |
 | C5 | 6,296 | 1,348 | 1,352 | 8,996 |
 | Full dataset | 31,484 | 6,743 | 6,755 | 44,982 |
 
-Caption-edit workload follows directly from the category design. LLM caption perturbation is required for C2, C3, and C5. In the realized `44,982` release, this corresponds to `26,982` caption edits (`8,992 + 8,994 + 8,996`), with `DIFFERENT:IRRELEVANT = 8,992:17,990` (approximately `1:2.00`). Image-side irrelevance for C4 and C5 is generated through deterministic image swapping rather than blur/occlusion severity edits.
+Caption-edit workload follows directly from the category design. LLM caption perturbation is required for C2, C4, and C5. In the realized `44,982` release, this corresponds to `26,982` caption edits (`8,994 + 8,992 + 8,996`), with `DIFFERENT:IRRELEVANT = 8,992:17,990` (approximately `1:2.00`). Image-side irrelevance for C3 and C5 is generated through deterministic image swapping rather than blur/occlusion severity edits.
 
 ### A7. Illustrative Raw-to-Constructed Examples and Category Manipulation Demonstration
 
@@ -138,12 +169,12 @@ This appendix subsection provides both family-level examples and an explicit cat
 | Category | Image state | Caption state | Manipulation path | Effective input construction | Oracle action |
 | --- | --- | --- | --- | --- | --- |
 | C1 | clean | clean | no perturbation | original image + clean caption | `REQUIRE_AGREEMENT` |
-| C2 | clean | different | LLM caption rewrite to semantically plausible but conflicting content | original image + `DIFFERENT` perturbed caption | `ABSTAIN` |
-| C3 | clean | irrelevant | LLM caption rewrite to unrelated content | original image + `IRRELEVANT` perturbed caption | `TRUST_VISION` |
-| C4 | irrelevant | clean | deterministic image swap to an irrelevant donor image | swapped image + clean caption | `TRUST_TEXT` |
-| C5 | irrelevant | irrelevant | combined C3 (text-side irrelevance) + C4 (image-side irrelevance) | swapped image + `IRRELEVANT` perturbed caption | `ABSTAIN` |
+| C2 | clean | irrelevant | LLM caption rewrite to unrelated content | original image + `IRRELEVANT` perturbed caption | `TRUST_VISION` |
+| C3 | irrelevant | clean | deterministic image swap to an irrelevant donor image | swapped image + clean caption | `TRUST_TEXT` |
+| C4 | clean | different | LLM caption rewrite to semantically plausible but conflicting content | original image + `DIFFERENT` perturbed caption | `ABSTAIN` |
+| C5 | irrelevant | irrelevant | combined C2 (text-side irrelevance) + C3 (image-side irrelevance) | swapped image + `IRRELEVANT` perturbed caption | `ABSTAIN` |
 
-The following schema-level example illustrates how one clean anchor can be expanded into all five categories under this manipulation policy. For C2, the prepared row stores unimodal support targets at top level rather than hiding text-only truth in metadata; in the current caption-derived export, `text_supported_target` is populated when the contradictory caption supports a concrete answer and otherwise remains null with an explicit provenance flag.
+The following schema-level example illustrates how one clean anchor can be expanded into all five categories under this manipulation policy. For C4, the prepared row stores unimodal support targets at top level rather than hiding text-only truth in metadata; in the current caption-derived export, `text_supported_target` is populated when the contradictory caption supports a concrete answer and otherwise remains null with an explicit provenance flag.
 
 ```json
 {
@@ -166,28 +197,28 @@ The following schema-level example illustrates how one clean anchor can be expan
     {
       "protocol_category": "C2",
       "image_state": "clean",
-      "caption_state": "different",
-      "text_input_source": "perturbed_caption_different",
-      "image_source": "original_image",
-      "oracle_action": "abstain",
-      "vision_supported_target": "yes",
-      "text_supported_target": "no"
-    },
-    {
-      "protocol_category": "C3",
-      "image_state": "clean",
       "caption_state": "irrelevant",
       "text_input_source": "perturbed_caption_irrelevant",
       "image_source": "original_image",
       "oracle_action": "trust_vision"
     },
     {
-      "protocol_category": "C4",
+      "protocol_category": "C3",
       "image_state": "irrelevant",
       "caption_state": "clean",
       "text_input_source": "clean_caption",
       "image_source": "swapped_irrelevant_image",
       "oracle_action": "trust_text"
+    },
+    {
+      "protocol_category": "C4",
+      "image_state": "clean",
+      "caption_state": "different",
+      "text_input_source": "perturbed_caption_different",
+      "image_source": "original_image",
+      "oracle_action": "abstain",
+      "vision_supported_target": "yes",
+      "text_supported_target": "no"
     },
     {
       "protocol_category": "C5",
@@ -201,76 +232,61 @@ The following schema-level example illustrates how one clean anchor can be expan
 }
 ```
 
-The family-specific examples below illustrate representative mappings from raw VQAv2/COCO annotations to normalized clean base records for the three active families; each base record is subsequently expanded into the C1-C5 variants using the manipulation rules above.
+The family-specific examples below use same-question representatives from the current prepared dataset for the three active families. They preserve the earlier question forms while pointing at real rows and image paths in the refreshed HF-backed export.
 
 ```json
 {
-  "vqa_question_raw": {
-    "question_id": 100000002,
-    "image_id": 100000,
-    "question": "Is the cat wearing a collar?"
-  },
-  "vqa_annotation_raw": {
-    "multiple_choice_answer": "yes"
-  },
-  "coco_caption_raw": {
-    "caption": "A cat sitting next to  a wii controller, upside down."
-  },
-  "constructed_base_example": {
-    "example_id": "vqa-100000002::clean",
+  "prepared_example": {
+    "example_id": "vqa-443349001::clean",
+    "split": "train",
     "family": "existence",
-    "gold_answer": "yes"
+    "protocol_category": "C4",
+    "operator": "text_edit",
+    "question": "Is the cat wearing a collar?",
+    "text_input": "A cat is sitting outside on the sidewalk without a collar.",
+    "gold_answer": "yes",
+    "image_path": "data/cache/hf_5way/images/vqa-443349001__clean.jpg"
   }
 }
 ```
 
-![Existence example image](data/interim/example_images/existence_COCO_val2014_000000100000.jpg)
+![Existence example image](data/cache/hf_5way/images/vqa-443349001__clean.jpg)
 
 ```json
 {
-  "vqa_question_raw": {
-    "question_id": 100022005,
-    "image_id": 100022,
-    "question": "How many baskets are there?"
-  },
-  "vqa_annotation_raw": {
-    "multiple_choice_answer": "2"
-  },
-  "coco_caption_raw": {
-    "caption": "two pink bowls with food in it, rice and tomatoes "
-  },
-  "constructed_base_example": {
+  "prepared_example": {
     "example_id": "vqa-100022005::clean",
+    "split": "val",
     "family": "count",
-    "gold_answer": "2"
+    "protocol_category": "C1",
+    "operator": "clean",
+    "question": "How many baskets are there?",
+    "text_input": "two pink bowls with food in it, rice and tomatoes ",
+    "gold_answer": "2",
+    "image_path": "data/cache/hf_5way/images/vqa-100022005__clean.jpg"
   }
 }
 ```
 
-![Count example image](data/interim/example_images/count_COCO_train2014_000000100022.jpg)
+![Count example image](data/cache/hf_5way/images/vqa-100022005__clean.jpg)
 
 ```json
 {
-  "vqa_question_raw": {
-    "question_id": 100012011,
-    "image_id": 100012,
-    "question": "What color is the shirt of the goalkeeper?"
-  },
-  "vqa_annotation_raw": {
-    "multiple_choice_answer": "white"
-  },
-  "coco_caption_raw": {
-    "caption": "Two men in field catching a white frisbee."
-  },
-  "constructed_base_example": {
-    "example_id": "vqa-100012011::clean",
+  "prepared_example": {
+    "example_id": "vqa-249076002::clean",
+    "split": "train",
     "family": "attribute_color",
-    "gold_answer": "white"
+    "protocol_category": "C3",
+    "operator": "text_edit",
+    "question": "What color is the shirt of the goalkeeper?",
+    "text_input": "Young boys playing soccer on a field.",
+    "gold_answer": "green",
+    "image_path": "data/cache/hf_5way/images/vqa-249076002__clean.jpg"
   }
 }
 ```
 
-![Attribute-color example image](data/interim/example_images/attribute_color_COCO_train2014_000000100012.jpg)
+![Attribute-color example image](data/cache/hf_5way/images/vqa-249076002__clean.jpg)
 
 ## Appendix B. Evaluation Details
 
@@ -306,13 +322,13 @@ $$
 {\sum_{i=1}^{N}\mathbf{1}[\neg \mathrm{abstained}_i]}.
 $$
 
-Raw answer accuracy alone is insufficient under C2/C5 behavior, so the primary project metric is task success. For flat baseline records, task success is defined as:
+Raw answer accuracy alone is insufficient under C4/C5 behavior, so the primary project metric is task success. For flat baseline records, task success is defined as:
 
 $$
 \mathrm{task\_success}_i=
 \begin{cases}
-1, & \text{if } \mathrm{protocol\_category}_i\in\{\mathrm{C2},\mathrm{C5}\}\ \land\ \mathrm{abstained}_i, \\
-1, & \text{if } \mathrm{protocol\_category}_i\in\{\mathrm{C1},\mathrm{C3},\mathrm{C4}\}\ \land\ \neg \mathrm{abstained}_i \land \mathrm{correct}_i, \\
+1, & \text{if } \mathrm{protocol\_category}_i\in\{\mathrm{C4},\mathrm{C5}\}\ \land\ \mathrm{abstained}_i, \\
+1, & \text{if } \mathrm{protocol\_category}_i\in\{\mathrm{C1},\mathrm{C2},\mathrm{C3}\}\ \land\ \neg \mathrm{abstained}_i \land \mathrm{correct}_i, \\
 1, & \text{if } \mathrm{protocol\_category}_i=\varnothing \land \mathrm{oracle\_action}_i=\mathrm{require\_agreement} \land (\mathrm{abstained}_i \lor \mathrm{correct}_i), \\
 1, & \text{if } \mathrm{protocol\_category}_i=\varnothing \land \mathrm{oracle\_action}_i\in\{\mathrm{trust\_vision},\mathrm{trust\_text}\} \land \neg \mathrm{abstained}_i \land \mathrm{correct}_i, \\
 0, & \text{otherwise}.
@@ -339,6 +355,6 @@ where $p$ is the answer distribution used by the baseline for its decision path 
 
 ### B4. Category-Level Interpretation and Locked Workflow
 
-In addition to aggregate metrics, we report per-category (`C1`-`C5`) breakdowns for Coverage, AccAnswered, Accuracy, and TaskSuccess. This category view is required for interpretation because each category captures a distinct arbitration behavior: C2 and C5 should exhibit abstention-driven task success, C3 should reward vision-grounded correctness, C4 should reward text-grounded correctness, and C1 should reward correct answering under consistent evidence. For C2, we additionally report vision-only accuracy, text-only accuracy, and multimodal abstention rate as secondary diagnostics. The current caption-derived export makes these diagnostics partially reportable rather than all-or-nothing: on the realized `44,982`-row release, `8,931 / 8,992` C2 rows (`99.32%`) receive a caption-derived `text_supported_target`, while `61` remain explicitly missing.
+In addition to aggregate metrics, we report per-category (`C1`-`C5`) breakdowns for Coverage, AccAnswered, Accuracy, and TaskSuccess. This category view is required for interpretation because each category captures a distinct arbitration behavior: C4 and C5 should exhibit abstention-driven task success, C2 should reward vision-grounded correctness, C3 should reward text-grounded correctness, and C1 should reward correct answering under consistent evidence. For C4, we additionally report vision-only accuracy, text-only accuracy, and multimodal abstention rate as secondary diagnostics. The current caption-derived export makes these diagnostics partially reportable rather than all-or-nothing: on the realized `44,982`-row release, `8,931 / 8,992` C4 rows (`99.32%`) receive a caption-derived `text_supported_target`, while `61` remain explicitly missing.
 
-The baseline workflow proceeds in four locked stages. First, all baselines are run on `val` to produce per-example outputs and aggregate diagnostics. Second, only thresholded methods (`confidence_threshold` and `probe_heuristic`) are tuned on `val` by maximizing `TaskSuccess`; ties are broken by higher Coverage, then by the least aggressive abstention setting (`lowest confidence_threshold`, `highest probe_both_uncertain_threshold`). This step writes a frozen `tuned_thresholds.json` artifact. Third, all settings are frozen and a single final run is executed on `test` (`test_id`) with `--tuned-thresholds-json` and no additional tuning. Fourth, reporting includes a main table (Accuracy, Coverage, AccAnswered, TaskSuccess, and Risk@target/AURC), risk-coverage plot(s), the C1-C5 breakdown tables, and the C2 diagnostics table. The C2 table now prints each metric with its evaluable denominator, so the partial text-target coverage of the caption-derived export is visible directly in the report rather than being hidden behind blanket `n/a` values.
+The baseline workflow proceeds in four locked stages. First, all baselines are run on `val` to produce per-example outputs and aggregate diagnostics. Second, only thresholded methods (`confidence_threshold` and `probe_heuristic`) are tuned on `val` by maximizing `TaskSuccess`; ties are broken by higher Coverage, then by the least aggressive abstention setting (`lowest confidence_threshold`, `highest probe_both_uncertain_threshold`). This step writes a frozen `tuned_thresholds.json` artifact. Third, all settings are frozen and a single final run is executed on `test` (`test_id`) with `--tuned-thresholds-json` and no additional tuning. Fourth, reporting includes a main table (Accuracy, Coverage, AccAnswered, TaskSuccess, and Risk@target/AURC), risk-coverage plot(s), the C1-C5 breakdown tables, and the contradiction diagnostics table. The backward-compatible `c2_diagnostics` artifact now prints each contradiction metric with its evaluable denominator, so both the broader C4 text-target coverage (`8,931 / 8,992`) and the stricter validated-contradiction coverage (`7,383 / 8,992`) remain visible in the report rather than being hidden behind blanket `n/a` values.

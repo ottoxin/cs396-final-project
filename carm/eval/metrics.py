@@ -100,14 +100,52 @@ def _abstained_value(row: dict[str, Any]) -> bool:
 
 
 def _protocol_category_value(row: dict[str, Any]) -> str:
-    category = str(_example_value(row, "protocol_category", "")).strip()
-    if category:
-        return category
+    relation = str(
+        _example_value(
+            row,
+            "derived_pairwise_relation",
+            row.get("derived_pairwise_relation", row.get("pairwise_relation", "")),
+        )
+    ).strip().lower()
+    vision_info = str(
+        _example_value(
+            row,
+            "derived_vision_info_state",
+            row.get("derived_vision_info_state", row.get("vision_info_state", "")),
+        )
+    ).strip().lower()
+    text_info = str(
+        _example_value(
+            row,
+            "derived_text_info_state",
+            row.get("derived_text_info_state", row.get("text_info_state", "")),
+        )
+    ).strip().lower()
+    if relation == "consistent":
+        return "C1"
+    if relation == "contradictory":
+        return "C4"
+    if relation == "both_weak":
+        return "C5"
+    if relation == "asymmetric":
+        if vision_info == "informative" and text_info == "uninformative":
+            return "C2"
+        if vision_info == "uninformative" and text_info == "informative":
+            return "C3"
 
-    metadata = _example_value(row, "metadata", {})
-    if isinstance(metadata, dict):
-        return str(metadata.get("protocol_category", "")).strip()
-    return ""
+    category = str(_example_value(row, "protocol_category", "")).strip().upper()
+    if not category:
+        metadata = _example_value(row, "metadata", {})
+        if isinstance(metadata, dict):
+            category = str(metadata.get("protocol_category", "")).strip().upper()
+    legacy_to_hf = {
+        "C1": "C1",
+        "C2": "C4",
+        "C3": "C2",
+        "C4": "C3",
+        "C5": "C5",
+    }
+    return legacy_to_hf.get(category, category)
 
 
 def _final_answer_value(row: dict[str, Any]) -> str:
@@ -145,9 +183,9 @@ def task_success_from_components(
     oracle = str(oracle_action).strip().lower()
     category = str(protocol_category or "").strip().upper()
 
-    if category in {"C2", "C5"}:
+    if category in {"C4", "C5"}:
         return abstained
-    if category in {"C1", "C3", "C4"}:
+    if category in {"C1", "C2", "C3"}:
         return (not abstained) and correct
 
     if oracle == "abstain":
@@ -291,14 +329,14 @@ def _optional_present_count(records: list[dict[str, Any]], key: str) -> int:
     return int(sum(1 for row in records if row.get(key) is not None))
 
 
-def _c2_diagnostic_metric(records: list[dict[str, Any]], key: str) -> float | None:
-    c2_rows = [row for row in records if _protocol_category_value(row) == "C2"]
-    return _optional_bool_mean(c2_rows, key)
+def _contradiction_diagnostic_metric(records: list[dict[str, Any]], key: str) -> float | None:
+    contradiction_rows = [row for row in records if _protocol_category_value(row) == "C4"]
+    return _optional_bool_mean(contradiction_rows, key)
 
 
-def _c2_diagnostic_count(records: list[dict[str, Any]], key: str) -> int:
-    c2_rows = [row for row in records if _protocol_category_value(row) == "C2"]
-    return _optional_present_count(c2_rows, key)
+def _contradiction_diagnostic_count(records: list[dict[str, Any]], key: str) -> int:
+    contradiction_rows = [row for row in records if _protocol_category_value(row) == "C4"]
+    return _optional_present_count(contradiction_rows, key)
 
 
 def _ordered_group_items(groups: dict[str, list[dict[str, Any]]], preferred: list[str]) -> list[tuple[str, list[dict[str, Any]]]]:
@@ -411,12 +449,18 @@ def summarize_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
         "parsed_argmax_agreement_rate_per_category": _per_category_flag_rate(records, "parsed_argmax_agree"),
         "final_unknown_rate": _final_unknown_rate(records),
         "final_unknown_rate_per_category": _per_category_final_unknown_rate(records),
-        "c2_vision_only_accuracy": _c2_diagnostic_metric(records, "c2_vision_only_correct"),
-        "c2_vision_only_count": _c2_diagnostic_count(records, "c2_vision_only_correct"),
-        "c2_text_only_accuracy": _c2_diagnostic_metric(records, "c2_text_only_correct"),
-        "c2_text_only_count": _c2_diagnostic_count(records, "c2_text_only_correct"),
-        "c2_multimodal_abstention_rate": _c2_diagnostic_metric(records, "c2_multimodal_abstained"),
-        "c2_multimodal_abstention_count": _c2_diagnostic_count(records, "c2_multimodal_abstained"),
+        "contradiction_vision_only_accuracy": _contradiction_diagnostic_metric(records, "c2_vision_only_correct"),
+        "contradiction_vision_only_count": _contradiction_diagnostic_count(records, "c2_vision_only_correct"),
+        "contradiction_text_only_accuracy": _contradiction_diagnostic_metric(records, "c2_text_only_correct"),
+        "contradiction_text_only_count": _contradiction_diagnostic_count(records, "c2_text_only_correct"),
+        "contradiction_multimodal_abstention_rate": _contradiction_diagnostic_metric(records, "c2_multimodal_abstained"),
+        "contradiction_multimodal_abstention_count": _contradiction_diagnostic_count(records, "c2_multimodal_abstained"),
+        "c2_vision_only_accuracy": _contradiction_diagnostic_metric(records, "c2_vision_only_correct"),
+        "c2_vision_only_count": _contradiction_diagnostic_count(records, "c2_vision_only_correct"),
+        "c2_text_only_accuracy": _contradiction_diagnostic_metric(records, "c2_text_only_correct"),
+        "c2_text_only_count": _contradiction_diagnostic_count(records, "c2_text_only_correct"),
+        "c2_multimodal_abstention_rate": _contradiction_diagnostic_metric(records, "c2_multimodal_abstained"),
+        "c2_multimodal_abstention_count": _contradiction_diagnostic_count(records, "c2_multimodal_abstained"),
         "risk_coverage_task_success": risk_coverage_curve_task_success(records),
         "example_counts_by_split": _counts_by(records, lambda row: _example_value(row, "split", "")),
         "example_counts_by_category": _counts_by(records, _protocol_category_value),

@@ -26,6 +26,13 @@ class ProbeResult:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass
+class FreeformGenerationResult:
+    text: str
+    confidence: float | None = None
+    metadata: dict[str, Any] | None = None
+
+
 class BackboneAdapter(Protocol):
     name: str
 
@@ -36,6 +43,9 @@ class BackboneAdapter(Protocol):
         ...
 
     def run_probe_text_only(self, text: str, question: str) -> ProbeResult:
+        ...
+
+    def generate_freeform(self, prompt: str, image: str | None = None) -> FreeformGenerationResult:
         ...
 
 

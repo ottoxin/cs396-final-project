@@ -143,6 +143,10 @@ class ConflictExample:
     hard_swap_flag: bool = False
     vision_supported_target: str | None = None
     text_supported_target: str | None = None
+    vision_info_state: str | None = None
+    text_info_state: str | None = None
+    pairwise_relation: str | None = None
+    joint_answer: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     record_version: str = DATASET_RECORD_VERSION
 
@@ -233,6 +237,26 @@ class ConflictExample:
             text_supported_target=(
                 str(item["text_supported_target"]).strip()
                 if item.get("text_supported_target") is not None
+                else None
+            ),
+            vision_info_state=(
+                str(item["vision_info_state"]).strip()
+                if item.get("vision_info_state") is not None
+                else None
+            ),
+            text_info_state=(
+                str(item["text_info_state"]).strip()
+                if item.get("text_info_state") is not None
+                else None
+            ),
+            pairwise_relation=(
+                str(item["pairwise_relation"]).strip()
+                if item.get("pairwise_relation") is not None
+                else None
+            ),
+            joint_answer=(
+                str(item["joint_answer"]).strip()
+                if item.get("joint_answer") is not None
                 else None
             ),
             metadata=item.get("metadata", {}),

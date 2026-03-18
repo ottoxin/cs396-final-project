@@ -1,0 +1,32 @@
+extends: hf_5way_qwen_caption_derived_10pct_protocol_family
+
+experimental:
+  run_name: RUN-EXP-0007_10pct_qwen_protocol
+  output_root: outputs/experimental
+  random_seed: 7
+  sampling_strategy: protocol_category_family
+  max_train_examples: 3148
+  max_val_examples: 674
+  max_test_examples: 674
+  training:
+    batch_size: 1
+    epochs: 1
+    lr: 0.001
+    weight_decay: 0.01
+    patience: 1
+    early_stop_metric: task_success_revised
+    log_every_steps: 100
+  loss:
+    lambda_vision_info: 1.0
+    lambda_text_info: 1.0
+    lambda_relation: 1.0
+    lambda_action: 1.0
+    lambda_cf: 0.0
+    margin_cf: 0.2
+
+backbone:
+  cache_results: true
+  cache_max_entries: 512
+
+runtime:
+  notes: Corrected full structured 10 percent run after the successful multimodal GPU preflight and cache-first Qwen loading fix.

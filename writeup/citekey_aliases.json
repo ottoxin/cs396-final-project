@@ -1,0 +1,18 @@
+{
+  "chen_survey_2025": "chenSurveyMultimodalHallucination2025",
+  "dai_instructblip_2023": "daiInstructBLIPGeneralpurposeVisionLanguage2023",
+  "favero_multi-modal_2024": "faveroMultiModalHallucinationControl2024",
+  "hua_how_2025": "huaHowVisionLanguageModels2025",
+  "jia_seeing_2025": "jiaSeeingSoundHearing2025",
+  "li_blip-2_2023": "liBLIP2BootstrappingLanguageImage2023",
+  "li_evaluating_2023": "liEvaluatingObjectHallucination2023",
+  "liu_visual_2023": "liuVisualInstructionTuning2023",
+  "popordanoska_clash_2025": "popordanoskaCLASHBenchmarkCrossModal2025",
+  "seth_towards_2025": "sethSystematicEvaluationHallucinations2025",
+  "wen_know_2025": "wenKnowYourLimits2025",
+  "yan_multimodal_2025": "yanMultimodalInconsistencyReasoning2025",
+  "zhang_evaluating_2025": "zhangEvaluatingSteeringModality2025",
+  "zhang_instruction_2026": "zhangInstructionAnchorsDissecting2026",
+  "zhang_robust_2025": "zhangRobustMultimodalLarge2025",
+  "zhang_when_2025": "zhangWhenModalitiesConflict2025"
+}

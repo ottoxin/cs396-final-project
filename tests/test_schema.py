@@ -6,11 +6,11 @@ from carm.data.schema import Action, AnswerType, ConflictExample, CorruptModalit
 
 
 class TestConflictExampleSchema(unittest.TestCase):
-    def test_round_trip_preserves_explicit_c2_targets(self) -> None:
+    def test_round_trip_preserves_explicit_c4_targets(self) -> None:
         example = ConflictExample(
-            example_id="b1::c2",
+            example_id="b1::c4",
             base_id="b1",
-            variant_id="c2",
+            variant_id="c4",
             image_path="image.jpg",
             text_input="caption",
             question="Is there a cat?",
@@ -24,7 +24,7 @@ class TestConflictExampleSchema(unittest.TestCase):
             oracle_action=Action.ABSTAIN,
             vision_supported_target="yes",
             text_supported_target="no",
-            metadata={"protocol_category": "C2"},
+            metadata={"protocol_category": "C4"},
         )
 
         restored = ConflictExample.from_dict(example.to_dict())
@@ -36,9 +36,9 @@ class TestConflictExampleSchema(unittest.TestCase):
     def test_from_dict_normalizes_stale_oracle_action_from_protocol_category(self) -> None:
         restored = ConflictExample.from_dict(
             {
-                "example_id": "b1::c2",
+                "example_id": "b1::c4",
                 "base_id": "b1",
-                "variant_id": "c2",
+                "variant_id": "c4",
                 "image_path": "image.jpg",
                 "text_input": "caption",
                 "question": "Is there a cat?",
@@ -50,7 +50,7 @@ class TestConflictExampleSchema(unittest.TestCase):
                 "severity": 1,
                 "answer_type": "boolean",
                 "oracle_action": "require_agreement",
-                "metadata": {"protocol_category": "C2"},
+                "metadata": {"protocol_category": "C4"},
             }
         )
 

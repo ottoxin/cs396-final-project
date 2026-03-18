@@ -6,6 +6,7 @@ backbone:
 
 training:
   batch_size: 1
+  log_every_steps: 100
 
 runtime:
-  notes: Low-memory CARM runtime on the caption-derived C2 target export with bounded backbone caches.
+  notes: Low-memory CARM runtime on the HF-aligned caption-derived export with bounded backbone caches.

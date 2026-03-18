@@ -317,6 +317,33 @@ def _protocol_category(ex: ConflictExample) -> str:
     return ""
 
 
+def _effective_protocol_category(ex: ConflictExample) -> str:
+    relation = str(ex.pairwise_relation or "").strip().lower()
+    vision_info = str(ex.vision_info_state or "").strip().lower()
+    text_info = str(ex.text_info_state or "").strip().lower()
+    if relation == "consistent":
+        return "C1"
+    if relation == "contradictory":
+        return "C4"
+    if relation == "both_weak":
+        return "C5"
+    if relation == "asymmetric":
+        if vision_info == "informative" and text_info == "uninformative":
+            return "C2"
+        if vision_info == "uninformative" and text_info == "informative":
+            return "C3"
+
+    category = _protocol_category(ex).upper()
+    legacy_to_hf = {
+        "C1": "C1",
+        "C2": "C4",
+        "C3": "C2",
+        "C4": "C3",
+        "C5": "C5",
+    }
+    return legacy_to_hf.get(category, category)
+
+
 def _strip_optional_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -325,7 +352,7 @@ def _strip_optional_text(value: Any) -> str | None:
 
 
 def _c2_vision_supported_answer(ex: ConflictExample) -> str | None:
-    if _protocol_category(ex) != "C2":
+    if _effective_protocol_category(ex) != "C4":
         return None
     explicit = _strip_optional_text(ex.vision_supported_target)
     if explicit is not None:
@@ -364,7 +391,7 @@ def _compute_c2_diagnostics(
         "c2_text_only_correct": None,
         "c2_multimodal_abstained": None,
     }
-    if _protocol_category(ex) != "C2":
+    if _effective_protocol_category(ex) != "C4":
         return diagnostics
 
     diagnostics["c2_multimodal_abstained"] = bool(prediction.abstained)
@@ -613,7 +640,7 @@ def evaluate_predictor(
                 metadata.get("pred_action"),
                 prediction.abstained,
                 correct,
-                protocol_category=_protocol_category(ex),
+                protocol_category=_effective_protocol_category(ex),
             )
 
             row = {
@@ -626,9 +653,13 @@ def evaluate_predictor(
                 "split": ex.split.value,
                 "family": ex.family.value,
                 "oracle_action": ex.oracle_action.value,
-                "protocol_category": _protocol_category(ex),
+                "protocol_category": _effective_protocol_category(ex),
                 "vision_supported_target": _c2_vision_supported_answer(ex),
                 "text_supported_target": _c2_text_supported_answer(ex),
+                "vision_info_state": ex.vision_info_state,
+                "text_info_state": ex.text_info_state,
+                "pairwise_relation": ex.pairwise_relation,
+                "joint_answer": ex.joint_answer,
                 "final_answer": prediction.final_answer,
                 "abstained": bool(prediction.abstained),
                 "confidence": float(prediction.confidence or 0.0),

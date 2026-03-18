@@ -1,0 +1,14 @@
+extends: hf_5way_qwen_caption_derived_10pct_protocol_family
+
+backbone:
+  cache_results: true
+  cache_max_entries: 512
+
+training:
+  batch_size: 1
+  epochs: 1
+  patience: 1
+  log_every_steps: 100
+
+runtime:
+  notes: Low-memory old CARM control config on the corrected 10 percent protocol-category-stratified subset.

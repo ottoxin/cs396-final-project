@@ -72,3 +72,25 @@ def extract_cross_modal_features(
         t_max_prob,
         both_confident_disagree,
     ]).float()
+
+
+def extract_cross_modal_features_augmented(
+    v_dist: torch.Tensor,
+    t_dist: torch.Tensor,
+    v_answer_text: str,
+    t_answer_text: str,
+) -> torch.Tensor:
+    """Return 6-dim cross-modal agreement features (augmented for C3/C5 discrimination).
+
+    Extends the 5-dim baseline with a 6th feature:
+      [5] t_conf_advantage: max(p_t) - max(p_v)
+
+    This feature is the targeted remedy for C3/C5 confusability: C3 has high
+    text confidence and low vision confidence, so t_conf_advantage >> 0;
+    C5 has low confidence in both, so t_conf_advantage ≈ 0. The sign and
+    magnitude of this feature align with the C3/C5 decision boundary.
+    """
+    base = extract_cross_modal_features(v_dist, t_dist, v_answer_text, t_answer_text)
+    # base[3] = t_max_prob, base[2] = v_max_prob
+    t_conf_advantage = base[3] - base[2]
+    return torch.cat([base, t_conf_advantage.unsqueeze(0)]).float()

@@ -204,6 +204,96 @@ class CascadeCARMHeads(nn.Module):
 
 
 @dataclass
+class FlatHiddenCARMConfig:
+    """Flat single-action-head classifier on frozen hidden states.
+
+    Ablation control for CascadeCARMHeads: uses the identical 139-dim input
+    (pooled hidden states + phi_v + phi_t + phi_cross) but replaces the
+    three-stage cascade with a single trunk → action head, removing both the
+    auxiliary informativeness/relation supervision and the staged conditioning.
+
+    This isolates the contribution of the cascade architecture from the
+    contribution of the hidden-state input representation.
+    """
+    hidden_size: int = 128
+    probe_feature_size: int = 3
+    cross_modal_feature_size: int = 5
+    pool: str = "mean"
+    trunk_hidden_size: int | None = None
+
+
+class FlatHiddenCARMHeads(nn.Module):
+    """Single flat 4-way action head on the full 139-dim hidden-state input.
+
+    Matches CascadeCARMHeads input exactly but omits auxiliary heads and
+    cascade conditioning. Returns zero tensors for the unused info/relation
+    outputs to preserve interface compatibility.
+    """
+
+    def __init__(self, config: FlatHiddenCARMConfig | None = None) -> None:
+        super().__init__()
+        self.config = config or FlatHiddenCARMConfig()
+        n_act = len(ACTION_LABELS)  # 4
+
+        decision_dim = (
+            self.config.hidden_size
+            + 2 * self.config.probe_feature_size
+            + self.config.cross_modal_feature_size
+        )
+        trunk_hidden = int(self.config.trunk_hidden_size or self.config.hidden_size)
+
+        self.trunk = nn.Sequential(
+            nn.Linear(decision_dim, trunk_hidden),
+            nn.GELU(),
+        )
+        self.action_head = nn.Linear(trunk_hidden, n_act)
+
+    def pool_anchor_states(self, anchor_states: torch.Tensor) -> torch.Tensor:
+        if anchor_states.dim() == 3:
+            if self.config.pool == "mean":
+                return anchor_states.mean(dim=1)
+            raise ValueError(f"Unsupported pool mode: {self.config.pool}")
+        if anchor_states.dim() == 2:
+            if self.config.pool == "mean":
+                return anchor_states.mean(dim=0)
+            raise ValueError(f"Unsupported pool mode: {self.config.pool}")
+        raise ValueError("anchor_states must have 2 or 3 dims")
+
+    def forward(
+        self,
+        anchor_states: torch.Tensor,
+        phi_v: torch.Tensor,
+        phi_t: torch.Tensor,
+        phi_cross: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        pooled = self.pool_anchor_states(anchor_states)
+        if pooled.dim() == 1:
+            pooled = pooled.unsqueeze(0)
+        if phi_v.dim() == 1:
+            phi_v = phi_v.unsqueeze(0)
+        if phi_t.dim() == 1:
+            phi_t = phi_t.unsqueeze(0)
+
+        parts = [pooled, phi_v, phi_t]
+        if phi_cross is not None:
+            if phi_cross.dim() == 1:
+                phi_cross = phi_cross.unsqueeze(0)
+            parts.append(phi_cross)
+        else:
+            zero = torch.zeros(pooled.shape[0], self.config.cross_modal_feature_size, device=pooled.device, dtype=pooled.dtype)
+            parts.append(zero)
+
+        features = torch.cat(parts, dim=-1)
+        trunk_out = self.trunk(features)
+        action_logits = self.action_head(trunk_out)
+
+        # Return zero tensors for unused heads (interface compatibility)
+        dummy_info = torch.zeros(pooled.shape[0], len(INFO_STATE_LABELS), device=pooled.device, dtype=pooled.dtype)
+        dummy_rel = torch.zeros(pooled.shape[0], len(PAIRWISE_RELATION_LABELS), device=pooled.device, dtype=pooled.dtype)
+        return dummy_info, dummy_info, dummy_rel, action_logits
+
+
+@dataclass
 class DistributionCARMConfig:
     """Configuration for distribution-based cascade CARM.
 

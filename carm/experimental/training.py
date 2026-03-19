@@ -15,8 +15,8 @@ from torch.utils.data import DataLoader, Dataset
 
 from carm.data.schema import ConflictExample
 from carm.experimental.labels import ACTION_TO_IDX, DerivedLabels, INFO_STATE_TO_IDX, PAIRWISE_RELATION_TO_IDX
-from carm.experimental.model import CascadeCARMHeads, DistributionCARMHeads, ExperimentalCARMHeads
-from carm.models.features import extract_cross_modal_features
+from carm.experimental.model import CascadeCARMHeads, DistributionCARMHeads, ExperimentalCARMHeads, FlatHiddenCARMHeads
+from carm.models.features import extract_cross_modal_features, extract_cross_modal_features_augmented
 from carm.models.interfaces import BackboneAdapter
 
 
@@ -125,7 +125,9 @@ class ExperimentalTrainer:
             vision_probe = self.backbone.run_probe_vision_only(image_payload, example.question)
             text_probe = self.backbone.run_probe_text_only(example.text_input, example.question)
 
-        phi_cross = extract_cross_modal_features(
+        cross_size = getattr(getattr(self.model, "config", None), "cross_modal_feature_size", 5)
+        _extract_fn = extract_cross_modal_features_augmented if cross_size >= 6 else extract_cross_modal_features
+        phi_cross = _extract_fn(
             vision_probe.answer_dist,
             text_probe.answer_dist,
             vision_probe.answer_text,

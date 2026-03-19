@@ -24,7 +24,7 @@ from carm.experimental.model import (
     decode_info_state,
     decode_pairwise_relation,
 )
-from carm.models.features import entropy, extract_cross_modal_features, top_margin
+from carm.models.features import entropy, extract_cross_modal_features, extract_cross_modal_features_augmented, top_margin
 from carm.models.interfaces import BackboneAdapter
 from carm.models.policy import apply_action_and_generate
 
@@ -276,7 +276,9 @@ class StructuredCARMPredictor:
             multimodal = self.backbone.run_backbone_multimodal(vision_payload, example.text_input, example.question)
             vision_probe = self.backbone.run_probe_vision_only(vision_payload, example.question)
             text_probe = self.backbone.run_probe_text_only(example.text_input, example.question)
-            phi_cross = extract_cross_modal_features(
+            cross_size = getattr(getattr(self.model, "config", None), "cross_modal_feature_size", 5)
+            _extract_fn = extract_cross_modal_features_augmented if cross_size >= 6 else extract_cross_modal_features
+            phi_cross = _extract_fn(
                 vision_probe.answer_dist,
                 text_probe.answer_dist,
                 vision_probe.answer_text,

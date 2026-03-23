@@ -1,0 +1,15 @@
+\begin{table}[H]
+\tablebodyfont
+\caption{Method-specific setup for learned variants in the main comparison.}
+\label{tab:setup-learned}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}L{0.17\linewidth}L{0.18\linewidth}L{0.38\linewidth}L{0.19\linewidth}@{}}
+\toprule
+Method & Backbone evidence & Decision rule & Additional details \\
+\midrule
+Dist CARM v1 & multimodal, vision-only, and text-only answer distributions plus cross-modal features & learned three-stage cascade without hidden-state input & 110-dimensional distribution input; early stop on validation TS \\
+Dist CARM v2 (+wt) & same as Dist CARM v1 & same cascade as Dist CARM v1 & trust\_text upweighted 3$\times$ via action class weights $[1,3,1,1]$; full-data rerun timed out at the 48-hour cluster limit before test evaluation (best val TS .615) \\
+Flat Hidden & pooled anchor states plus probe and cross-modal features & learned single-step action head & same 139-dimensional input as Cascade CARM, but no staged decomposition \\
+Cascade CARM & pooled anchor states plus probe and cross-modal features & learned three-stage cascade over informativeness, relation, and action & 36,236 trainable parameters; early stop on validation TS \\
+\bottomrule
+\end{tabular*}
+\end{table}

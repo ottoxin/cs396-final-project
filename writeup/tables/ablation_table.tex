@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\tablebodyfont
+\caption{Ablation results on the 6,742-example full test split by protocol category. Dist
+v1 uses answer distributions and cross-modal features only; Flat Hidden and Cascade use
+the same 139-dimensional anchor-state-plus-probe input. Dist CARM v2 (+wt) is omitted
+because its full-data rerun timed out before final test evaluation.}
+\label{tab:ablation}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}L{0.22\linewidth}C{0.09\linewidth}C{0.09\linewidth}C{0.09\linewidth}C{0.09\linewidth}C{0.09\linewidth}C{0.09\linewidth}@{}}
+\toprule
+Variant & TS$\uparrow$ & C1$\uparrow$ & C2$\uparrow$ & C3$\uparrow$ & C4$\uparrow$ & C5$\uparrow$ \\
+\midrule
+Dist v1            & .588 & .619 & .501 & .213 & .758 & \textbf{.850} \\
+Flat Hidden        & .651 & .678 & .678 & .419 & \textbf{.764} & .717 \\
+\textbf{Cascade}   & \textbf{.662} & \textbf{.734} & \textbf{.736} & \textbf{.456} & .683 & .702 \\
+\bottomrule
+\end{tabular*}
+\end{table}

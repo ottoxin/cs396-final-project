@@ -1,0 +1,22 @@
+\begin{table}[H]
+\tablebodyfont
+\caption{Exact full-data test metrics with Wilson 95\% confidence intervals for task
+success. Dist CARM v2 (+wt) is omitted because its full-data rerun timed out before final
+test evaluation.}
+\label{tab:full-metrics}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}L{0.24\linewidth}C{0.09\linewidth}C{0.09\linewidth}C{0.09\linewidth}C{0.18\linewidth}C{0.10\linewidth}C{0.11\linewidth}@{}}
+\toprule
+Method & Cov.$\uparrow$ & AoA$\uparrow$ & TS$\uparrow$ & 95\% CI & ActAcc$\uparrow$ & $\Delta$ TS vs.\ agreement \\
+\midrule
+Backbone direct      & \textbf{1.000} & .601 & .438 & [.426, .450] & ---   & $-$.051 \\
+Agreement check      & .542 & .631 & .489 & [.478, .501] & ---   & --- \\
+Conf.\ threshold     & .680 & .638 & .470 & [.459, .482] & ---   & $-$.019 \\
+Probe heuristic      & .956 & .565 & .428 & [.416, .440] & ---   & $-$.061 \\
+Prompt-only abstain  & .465 & .742 & .473 & [.461, .485] & .389  & $-$.016 \\
+\midrule
+Dist CARM v1         & .389 & \textbf{.791} & .588 & [.576, .599] & .509  & $+$.098 \\
+Flat Hidden          & .543 & .758 & .651 & [.639, .662] & \textbf{.666}  & $+$.161 \\
+Cascade CARM         & .589 & .772 & \textbf{.662} & [.651, .673] & .647 & $\mathbf{+}$.173 \\
+\bottomrule
+\end{tabular*}
+\end{table}

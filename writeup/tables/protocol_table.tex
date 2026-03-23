@@ -1,0 +1,19 @@
+\begin{table}[t]
+\centering
+\caption{Conflict protocol categories and oracle actions. Each category is defined by the
+cross-product of per-modality informativeness and pairwise consistency, with a
+deterministic oracle action.}
+\label{tab:protocol}
+\tablebodyfont
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}L{0.08\linewidth}C{0.15\linewidth}C{0.15\linewidth}C{0.26\linewidth}C{0.24\linewidth}@{}}
+\toprule
+Cat. & \shortstack{Vision\\info.?} & \shortstack{Text\\info.?} & Relation & Oracle action \\
+\midrule
+C1 & yes & yes & consistent & require agreement \\
+C2 & yes & no & --- & trust vision \\
+C3 & no & yes & --- & trust text \\
+C4 & yes & yes & contradictory & abstain \\
+C5 & no & no & --- & abstain \\
+\bottomrule
+\end{tabular*}
+\end{table}

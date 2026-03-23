@@ -1,0 +1,15 @@
+\begin{table}[H]
+\tablebodyfont
+\caption{Per-category task success for completed full-data learned variants. Dist CARM
+v2 (+wt) is omitted because its full-data rerun timed out before test evaluation.}
+\label{tab:learned-category}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}L{0.28\linewidth}C{0.12\linewidth}C{0.12\linewidth}C{0.12\linewidth}C{0.12\linewidth}C{0.12\linewidth}@{}}
+\toprule
+Variant & C1 & C2 & C3 & C4 & C5 \\
+\midrule
+Dist v1       & .619 & .501 & .213 & .758 & \textbf{.850} \\
+Flat Hidden   & .678 & .678 & .419 & \textbf{.764} & .717 \\
+\textbf{Cascade} & \textbf{.734} & \textbf{.736} & \textbf{.456} & .683 & .702 \\
+\bottomrule
+\end{tabular*}
+\end{table}

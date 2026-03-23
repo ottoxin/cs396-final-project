@@ -1,0 +1,24 @@
+\begin{table}[t]
+\centering
+\tablebodyfont
+\caption{Main results on the 6,742-example full test split. Higher is better. Dist
+CARM v2 (+wt) is omitted because its full-data rerun hit the 48-hour cluster wall-time
+before final test evaluation.}
+\label{tab:main}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}L{0.35\linewidth}C{0.12\linewidth}C{0.12\linewidth}C{0.12\linewidth}C{0.15\linewidth}@{}}
+\toprule
+Method & \shortstack{TS\\$\uparrow$} & \shortstack{Cov\\$\uparrow$} & \shortstack{AoA\\$\uparrow$} & \shortstack{Act.\\acc.\\$\uparrow$} \\
+\midrule
+Backbone direct          & .438 & \textbf{1.000} & .601 & --- \\
+Agreement check          & .489 & .542 & .631 & --- \\
+Conf.\ threshold         & .470 & .680 & .638 & --- \\
+Probe heuristic          & .428 & .956 & .565 & --- \\
+Prompt-only abstain      & .473 & .465 & .742 & .389 \\
+\midrule
+Dist CARM v1             & .588 & .389 & \textbf{.791} & .509 \\
+Flat Hidden              & .651 & .543 & .758 & \textbf{.666} \\
+Cascade CARM             & \textbf{.662} & .589 & .772 & .647 \\
+\bottomrule
+\end{tabular*}
+\displaynote{Higher is better. Rows without an abstention mechanism have coverage 1.000 by definition.}
+\end{table}

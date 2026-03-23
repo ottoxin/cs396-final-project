@@ -1,0 +1,17 @@
+\begin{table}[H]
+\tablebodyfont
+\caption{Representative test examples under the revised protocol. Captions are the text
+seen by the model.}
+\label{tab:example-cases}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}L{0.06\linewidth}C{0.22\linewidth}C{0.17\linewidth}C{0.10\linewidth}C{0.10\linewidth}C{0.25\linewidth}@{}}
+\toprule
+Cat. & Caption seen by model & Question & Vision probe & Text probe & Successful outcome \\
+\midrule
+C1 & A white bathroom sink sitting next to a white bathtub. & What color is the sink? & white & white & require agreement, answer ``white'' \\
+C2 & A chair that has a thing on it. & Is this an older style suitcase? & yes & no & trust vision, answer ``yes'' \\
+C3 & A black and brown cat sitting in chair inside blue bag. & What color is the backpack? & pink & blue & trust text, answer ``blue'' \\
+C4 & There is a bed with a green comforter and a metal headboard and foot board. & What color is this beds comforter? & blue & green & abstain because both modalities are informative but contradictory \\
+C5 & A bird sitting on someone's arm in a room. & What color is the bird? & brown & blue & abstain because neither modality is reliable enough \\
+\bottomrule
+\end{tabular*}
+\end{table}

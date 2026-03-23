@@ -1,0 +1,44 @@
+extends: hf_5way_qwen_caption_derived
+
+# Full-data Distribution CARM v1 on the canonical prepared split.
+
+model:
+  type: distribution
+  vocab_size: 35
+  cross_modal_feature_size: 5
+  trunk_hidden_size: 128
+  stage_hidden_size: 64
+
+experimental:
+  run_name: RUN-EXP-dist_full
+  output_root: outputs/experimental
+  random_seed: 7
+  sampling_strategy: protocol_category_family
+  max_train_examples: 31463
+  max_val_examples: 6743
+  max_test_examples: 6742
+  training:
+    batch_size: 1
+    epochs: 10
+    lr: 0.001
+    weight_decay: 0.01
+    patience: 3
+    early_stop_metric: task_success_revised
+    log_every_steps: 500
+  loss:
+    lambda_vision_info: 1.0
+    lambda_text_info: 1.0
+    lambda_relation: 1.5
+    lambda_action: 3.0
+    lambda_cf: 0.0
+    margin_cf: 0.2
+
+backbone:
+  cache_results: true
+  cache_max_entries: 512
+
+runtime:
+  notes: |
+    Full-data distribution-only learned comparator on the canonical prepared
+    split. Used to test whether answer distributions alone can recover the
+    hidden-state gains.

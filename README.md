@@ -1,25 +1,26 @@
 # CARM: Conflict-Aware Reasoning Module
 
-This repository now uses a Hugging Face first workflow.
+CARM studies multimodal conflict handling for frozen MLLMs. The project frames image-text disagreement as a structured arbitration problem over four actions:
+`trust_vision`, `trust_text`, `require_agreement`, and `abstain`.
 
-Canonical dataset source:
-- `nbso/carm-vqa-5way`
-- current realized release size: `44,982` rows across official HF splits (`train`, `validation`, `test`)
+The current paper build uses the `nbso/carm-vqa-5way` prepared corpus with the canonical full split:
+- `31,463` train
+- `6,743` validation
+- `6,742` test
 
-Important count clarification:
-- `150,582 / 15,207 / 18,801` in `WRITEUP.md` are upstream retained clean-base counts from official VQAv2+COCO filtering.
-- `44,982` is the currently published HF refined-run corpus used for current baseline workflows.
+## Result Snapshot
+
+On the full `test` split with `Qwen/Qwen2.5-VL-7B-Instruct`:
+- `agreement_check`: `0.489` task success
+- `Dist CARM v1`: `0.588` task success
+- `Flat Hidden`: `0.651` task success
+- `Cascade CARM`: `0.662` task success
+
+The stronger class-weighted `Dist CARM v2 (+wt)` full-data rerun timed out at the cluster's `48h` wall-time before final test evaluation.
 
 ## Setup
 
-```bash
-/gpfs/software/bowtie2/2.5.4/bin/python3.12 -m venv .venv
-./.venv/bin/python -m pip install --upgrade pip setuptools wheel
-./.venv/bin/python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision
-./.venv/bin/python -m pip install --upgrade -e . pytest accelerate
-```
-
-Quest GPU baseline bootstrap on the login node:
+Create the project environment with Python `3.12`:
 
 ```bash
 /gpfs/software/bowtie2/2.5.4/bin/python3.12 -m venv .venv
@@ -28,197 +29,37 @@ Quest GPU baseline bootstrap on the login node:
 ./.venv/bin/python -m pip install --upgrade -e . pytest accelerate
 ```
 
-Why this interpreter path is explicit:
-- the default Quest `python3` on login and compute nodes is `3.6.8`
-- the project requires `>=3.10`
-- a venv built against `/usr/bin/python3.12` on a login shell will not run on compute nodes here
+Quest note:
+- the default Quest `python3` is `3.6.8`
+- this project requires `>=3.10`
+- use the explicit `python3.12` path above when creating the venv
 
-## HF-First Workflow
+## Paper Build
 
-### 1) Prepare baseline-ready local outputs from HF dataset
+The `writeup/` directory is self-contained for compilation. It includes the main LaTeX source, bibliography, ACL style files, local table/figure assets, and the compiled PDF.
 
-```bash
-./.venv/bin/python scripts/prepare_hf_5way_dataset.py \
-  --hf-repo-id nbso/carm-vqa-5way \
-  --hf-revision main \
-  --cache-root data/cache/hf_5way
-```
-
-This writes:
-- `data/cache/hf_5way/prepared/carm_vqa_5way.jsonl`
-- `data/cache/hf_5way/prepared/carm_vqa_5way.manifest.json`
-- `data/cache/hf_5way/images/*.jpg`
-
-Protocol note:
-- HF prep now prefers the official HF split layout and maps it into the repo's internal labels: `train -> train`, `validation -> val`, `test -> test_id`.
-- If the upstream dataset falls back to a single split in the future, the script still supports the older deterministic local re-splitting workflow.
-- HF prep aligns prepared labels to the HF category numbering, rewrites stale contradiction-row oracle labels to `abstain`, fills top-level `vision_supported_target`, `text_supported_target`, `vision_info_state`, `text_info_state`, `pairwise_relation`, and `joint_answer`, and records provenance/masking metadata for unresolved `C4` contradiction rows.
-
-### 2) Tune thresholded baselines on `val`
+Build the paper with:
 
 ```bash
-./.venv/bin/python scripts/tune_baseline_thresholds.py \
-  --config configs/hf_5way_qwen_caption_derived.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
-  --output_dir outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived \
-  --split val
+bash writeup/build_paper.sh
 ```
 
-This writes:
-- `outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/tuned_thresholds.json`
-- `outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/confidence_threshold_sweep.json`
-- `outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/probe_heuristic_sweep.json`
-
-### 3) Run locked baselines on `test_id`
-
-```bash
-./.venv/bin/python scripts/run_baselines.py \
-  --config configs/hf_5way_qwen_caption_derived.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
-  --output_dir outputs/baselines/RUN-0010_hf5way_qwen_test_id_tuned_caption_derived \
-  --tuned-thresholds-json outputs/baselines/RUN-0009_hf5way_qwen_val_tuning_caption_derived/tuned_thresholds.json \
-  --resume \
-  --split test_id \
-  --progress-every 500
-```
-
-These commands assume the project virtualenv. Do not rely on system `python3` on Quest.
-
-Active baseline set in the runner:
-- `backbone_direct`
-- `agreement_check`
-- `confidence_threshold`
-- `probe_heuristic`
-
-Each baseline uses the same flat evaluator contract:
-- per-example core fields: input/gold metadata, `final_answer`, `abstained`, `confidence`, `correct`, `task_success`
-- optional extra fields are appended for richer predictors and contradiction diagnostics such as `pred_action`, `r_v`, `r_t`, `audit`, `c2_vision_only_correct`, `c2_text_only_correct`, and `c2_multimodal_abstained`
-
-Main artifacts:
-- per baseline directory:
-  - `per_example_predictions.jsonl`
-  - `metrics.json`
-- run root:
-  - `summary.json`
-  - `applied_tuned_thresholds.json`
-  - `report/main_table.csv`
-  - `report/main_table.md`
-  - `report/per_category_task_success.csv`
-  - `report/per_category_task_success.md`
-  - `report/c2_diagnostics.csv`
-  - `report/c2_diagnostics.md`
-  - `report/risk_coverage_task_success_curves.json`
-
-`report/c2_diagnostics.*` is kept as a backward-compatible filename, but it now prints contradiction-category diagnostics for HF `C4` with each metric's evaluable denominator, e.g. `0.8123 (n=8931)`, so partial contradiction text-target coverage is explicit in the report rather than hidden behind `n/a`.
-
-The backbone now answers via free generation with family-specific prompting/parsing:
-- existence: `Answer yes or no only.`
-- count: `Answer with a single integer only.`
-- color: `Answer with a single color word only.`
-
-### 4) Rerender baseline report tables (optional)
-
-```bash
-./.venv/bin/python scripts/summarize_baselines_report.py \
-  --baselines-root outputs/baselines/RUN-0010_hf5way_qwen_test_id_tuned_caption_derived \
-  --target-coverage 0.8
-```
-
-`scripts/run_baselines.py` now writes the report automatically; rerender manually only if you need to rebuild the tables from existing per-example outputs.
-
-### 5) Train and evaluate CARM on the refreshed export
-
-Use the low-memory config for train/eval so the backbone keeps only a bounded result cache during the repeated multimodal/probe calls inside CARM:
-
-```bash
-./.venv/bin/python scripts/train_carm.py \
-  --config configs/hf_5way_qwen_caption_derived_lowmem.yaml \
-  --train_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
-  --output_dir outputs/carm/RUN-0011_hf5way_qwen_caption_derived_train
-
-./.venv/bin/python scripts/evaluate_carm.py \
-  --config configs/hf_5way_qwen_caption_derived_lowmem.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way.jsonl \
-  --output_dir outputs/carm/RUN-0011_hf5way_qwen_caption_derived_eval_test_id \
-  --model_ckpt outputs/carm/RUN-0011_hf5way_qwen_caption_derived_train/carm_heads.pt \
-  --split test_id
-```
-
-### 6) Run the completed 10% structured experiment track and figure bundle
-
-The revised `NEW_PLAN` path uses the protocol-category-stratified 10% subset:
-- `data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.jsonl`
-- `data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.manifest.json`
-
-Structured four-head experimental run:
-
-```bash
-./.venv/bin/python scripts/run_experimental_small_data.py \
-  --config configs/experimental_10pct_qwen_protocol_family_rerun.yaml \
-  --input_jsonl data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.jsonl \
-  --output_dir outputs/experimental/RUN-EXP-0007_10pct_qwen_protocol
-```
-
-Old action-only control on the same subset:
-
-```bash
-bash scripts/run_carm_quest.sh \
-  outputs/carm/RUN-CTRL-0001_10pct_protocol \
-  configs/hf_5way_qwen_caption_derived_10pct_protocol_family_lowmem.yaml \
-  data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.jsonl \
-  data/cache/hf_5way/prepared/carm_vqa_5way_10pct_protocol_family_seed7.manifest.json \
-  test_id
-```
-
-Generate the non-ablation figure bundle and summary:
-
-```bash
-./.venv/bin/python scripts/plots/plot_new_plan_10pct_analysis.py
-```
-
-Frozen outputs from the completed stage:
-- structured run: `outputs/experimental/RUN-EXP-0007_10pct_qwen_protocol/`
-- old action-only control: `outputs/carm/RUN-CTRL-0001_10pct_protocol/`
-- figure bundle and summary: `outputs/analysis/RUN-ANALYSIS-0001_10pct_protocol/`
-
-The current non-ablation outcome is that the old action-only control beats the structured four-head model on final task-success/action metrics on this 10% run, while the structured model learns vision informativeness better than text informativeness or pairwise relation. Ablations are intentionally deferred.
+The output PDF is:
+- `writeup/carm_final.pdf`
 
 ## Repository Layout
 
-- `carm/`: package code used by all runtime CLIs (data, models, train, eval, utils).
-- `scripts/`: command-line entrypoints (prepare dataset, baselines, train, evaluate).
-- `configs/`: active runtime configs (`default.yaml`, `hf_5way_qwen.yaml`).
-- `tests/`: automated validation (`pytest`) for schema, mapping, policy, and integration.
-- `data/`: local sample + cache root for prepared HF artifacts.
-- `outputs/`: run outputs (metrics, per-example predictions, checkpoints/logs).
-- `archive/`: local-only archived legacy scripts/configs/data.
+- `carm/`: core library code for features, experimental heads, training, and evaluation
+- `configs/`: runnable experiment configs
+- `scripts/`: dataset prep, baseline, training, and utility entrypoints
+- `tests/`: pytest coverage for key training and experimental paths
+- `writeup/`: self-contained ACL paper sources and compiled PDF
+- `reports/`: planning notes, experiment logs, and internal workflow documents
 
-Tree view:
-
-```text
-cs396-final-project/
-├── carm/         # core library package
-│   ├── data/     # schema + prep helpers
-│   ├── eval/     # baselines + metrics + evaluator
-│   ├── models/   # backbone adapters + CARM heads + policy
-│   ├── train/    # dataset/loss/trainer
-│   └── utils/    # config + seed helpers
-├── configs/      # active runtime configs
-│   ├── default.yaml
-│   └── hf_5way_qwen.yaml
-├── scripts/      # runnable CLIs
-│   ├── prepare_hf_5way_dataset.py
-│   ├── run_baselines.py
-│   ├── summarize_baselines_report.py
-│   ├── train_carm.py
-│   └── evaluate_carm.py
-├── tests/        # pytest suite (kept separate from runtime scripts)
-├── data/
-│   ├── sample/   # tiny local sample data
-│   └── cache/    # HF-first local materialization (gitignored)
-├── outputs/      # run outputs (gitignored)
-└── archive/      # local-only legacy materials (gitignored)
-```
+Large local artifacts are intentionally not committed:
+- `data/cache/`
+- `outputs/`
+- cluster-generated logs and downloaded dataset material outside paper assets
 
 ## Config Defaults
 

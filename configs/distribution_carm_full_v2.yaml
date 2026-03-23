@@ -1,0 +1,28 @@
+extends: distribution_carm_full
+
+# Full-data Distribution CARM v2 with action class weights.
+
+experimental:
+  run_name: RUN-EXP-dist_full_v2
+  training:
+    batch_size: 1
+    epochs: 15
+    lr: 0.001
+    weight_decay: 0.01
+    patience: 5
+    early_stop_metric: task_success_revised
+    log_every_steps: 500
+  loss:
+    lambda_vision_info: 1.0
+    lambda_text_info: 1.0
+    lambda_relation: 1.5
+    lambda_action: 3.0
+    lambda_cf: 0.0
+    margin_cf: 0.2
+    action_class_weights: [1.0, 3.0, 1.0, 1.0]
+
+runtime:
+  notes: |
+    Full-data weighted distribution comparator. This remains an established
+    variant, but it is expected to be the riskiest fit under Quest's 48-hour
+    `gengpu` wall-time ceiling.

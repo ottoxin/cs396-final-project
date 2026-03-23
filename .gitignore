@@ -6,6 +6,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .DS_Store
+.hf_cache/
+.hf_home/
 artifacts/
 outputs/
 data/cache/
@@ -13,6 +15,15 @@ data/generated/
 data/hf_release/
 archive/
 logs/
-AGENT.md
-LOG.md
-REPORT.md
+/AGENT.md
+/LOG.md
+/REPORT.md
+writeup/.latex-build-acl/
+writeup/.zotero.env
+writeup/.zotero.env.example
+writeup/*.zip
+reports/internal/
+reports/figure_generation/
+reports/writeup_support/.zotero.env
+reports/writeup_support/.zotero.env.example
+reports/writeup_support/writeup_archive/

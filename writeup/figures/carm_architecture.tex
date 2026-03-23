@@ -1,0 +1,37 @@
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  >=Stealth,
+  node distance=0.45cm,
+  box/.style={draw, rounded corners=2pt, minimum height=0.82cm,
+              minimum width=0.88\columnwidth, align=center, line width=0.6pt},
+  inputbox/.style={box, fill=blue!8},
+  featbox/.style={box, fill=orange!12},
+  stagebox/.style={box, fill=green!10},
+  actionbox/.style={box, fill=red!10},
+  trunkbox/.style={box, fill=gray!12},
+  arrow/.style={->, line width=0.7pt, color=gray!70!black},
+  note/.style={font=\small, text=gray!70!black, align=center},
+]
+\node[inputbox] (input) {Image $I$, caption $T$, and question $q$};
+\node[featbox, below=of input] (queries)
+  {Frozen Qwen2.5-VL-7B\\vision-only probe, text-only probe, and full multimodal pass};
+\node[trunkbox, below=of queries] (features)
+  {Probe summaries and pooled anchor state\\$u=[h;\phi_v;\phi_t;\phi_{\mathrm{cross}}] \in \mathbb{R}^{139}$};
+\node[stagebox, below=of features] (cascade)
+  {Three-stage cascade\\(1) informativeness \quad (2) relation \quad (3) action};
+\node[actionbox, below=of cascade] (actions)
+  {\texttt{trust\_vision} \quad \texttt{trust\_text}\\\texttt{require\_agreement} \quad \texttt{abstain}};
+\node[note, below=0.15cm of actions] {Maps directly onto C2, C3, C1, and C4/C5.};
+
+\draw[arrow] (input) -- (queries);
+\draw[arrow] (queries) -- (features);
+\draw[arrow] (features) -- (cascade);
+\draw[arrow] (cascade) -- (actions);
+
+\end{tikzpicture}
+\caption{CARM architecture. CARM keeps the backbone frozen, extracts unimodal and
+cross-modal evidence, and makes a staged arbitration decision.}
+\label{fig:arch}
+\end{figure}

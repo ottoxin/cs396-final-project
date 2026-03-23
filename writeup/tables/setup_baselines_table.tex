@@ -1,0 +1,16 @@
+\begin{table}[H]
+\tablebodyfont
+\caption{Method-specific setup for non-learned baselines in the main comparison.}
+\label{tab:setup-baselines}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}L{0.17\linewidth}L{0.18\linewidth}L{0.38\linewidth}L{0.19\linewidth}@{}}
+\toprule
+Method & Backbone evidence & Decision rule & Additional details \\
+\midrule
+Backbone direct & full multimodal pass & decode an answer directly; never abstain & no learned arbitration module \\
+Agreement check & vision and text probes & answer only when unimodal top-1 answers match; else abstain & no tuning or training \\
+Conf.\ threshold & full multimodal pass & answer only when backbone confidence exceeds a validation-tuned threshold & single-threshold selective prediction baseline \\
+Probe heuristic & vision and text probes & choose the lower-entropy probe unless both probe entropies exceed a validation-tuned threshold & strongest simple non-learned router \\
+Prompt-only abstain & free-form action prompt plus vision and text probes & generate one action label, then execute that action with the two unimodal probes & zero-shot; no learned parameters \\
+\bottomrule
+\end{tabular*}
+\end{table}

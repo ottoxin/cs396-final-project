@@ -27,6 +27,8 @@ Create the project environment with Python `3.12`:
 ./.venv/bin/python -m pip install --upgrade pip setuptools wheel
 ./.venv/bin/python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 torch torchvision
 ./.venv/bin/python -m pip install --upgrade -e . pytest accelerate
+source scripts/runtime_env.sh
+setup_hf_runtime_env "$(pwd)"
 ```
 
 Quest note:
@@ -79,7 +81,11 @@ Large local artifacts are intentionally not committed:
 - `data/cache/hf_5way/prepared/carm_vqa_5way.jsonl`
 - `data/cache/hf_5way/prepared/carm_vqa_5way.manifest.json`
 - `data/cache/hf_5way/images/`
-- Hugging Face `datasets` may also keep its own cache under `~/.cache/huggingface/` unless you set `HF_HOME`/`HF_DATASETS_CACHE`.
+- Quest/runtime Hugging Face caches now live under `data/cache/hf_runtime/`:
+- `data/cache/hf_runtime/home/`
+- `data/cache/hf_runtime/cache/`
+- `data/cache/hf_runtime/cache/datasets/`
+- `scripts/runtime_env.sh` sets `HF_HOME`, `HF_HUB_CACHE`, and `HF_DATASETS_CACHE` to those locations.
 - `data/cache/` is the active HF-first local materialization area and should stay gitignored.
 - Archived stale or incompatible historical runs are moved under `outputs/archive/` so they are not accidentally resumed or compared against the active flattened schema.
 

@@ -34,6 +34,7 @@ MANIFEST_PATH="$4"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
+source "${REPO_ROOT}/scripts/runtime_env.sh"
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 RUN_SCRIPT="${REPO_ROOT}/scripts/run_experimental_small_data.py"
 QWEN_TEST="${REPO_ROOT}/tests/test_qwen_inference_optin.py"
@@ -51,10 +52,7 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
 fi
 
 export PATH="${REPO_ROOT}/.venv/bin:${PATH}"
-export HF_HOME="${REPO_ROOT}/.hf_home"
-export HF_HUB_CACHE="${REPO_ROOT}/.hf_cache"
-export HF_DATASETS_CACHE="${REPO_ROOT}/.hf_cache/datasets"
-export PYTHONUNBUFFERED=1
+setup_hf_runtime_env "${REPO_ROOT}"
 
 log "start experimental qwen output_dir=${OUTPUT_DIR}"
 log "repo_root=${REPO_ROOT}"
@@ -67,6 +65,10 @@ log "python_bin=${PYTHON_BIN}"
   printf 'slurm_job_id=%s\n' "${SLURM_JOB_ID:-none}"
   printf 'slurm_job_name=%s\n' "${SLURM_JOB_NAME:-none}"
   printf 'cuda_visible_devices=%s\n' "${CUDA_VISIBLE_DEVICES:-unset}"
+  printf 'hf_runtime_root=%s\n' "${HF_RUNTIME_ROOT}"
+  printf 'hf_home=%s\n' "${HF_HOME}"
+  printf 'hf_hub_cache=%s\n' "${HF_HUB_CACHE}"
+  printf 'hf_datasets_cache=%s\n' "${HF_DATASETS_CACHE}"
   printf 'config_path=%s\n' "${CONFIG_PATH}"
   printf 'input_jsonl=%s\n' "${INPUT_JSONL}"
   printf 'manifest_path=%s\n' "${MANIFEST_PATH}"

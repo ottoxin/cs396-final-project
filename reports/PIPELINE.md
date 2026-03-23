@@ -9,9 +9,8 @@ From the project root:
 ```bash
 cd /projects/p33196/kym9881/cs396-final-project
 export PATH="/projects/p33196/kym9881/cs396-final-project/.venv/bin:$PATH"
-export HF_HOME=/projects/p33196/kym9881/cs396-final-project/.hf_home
-export HF_HUB_CACHE=/projects/p33196/kym9881/cs396-final-project/.hf_cache
-export HF_DATASETS_CACHE=/projects/p33196/kym9881/cs396-final-project/.hf_cache/datasets
+source /projects/p33196/kym9881/cs396-final-project/scripts/runtime_env.sh
+setup_hf_runtime_env /projects/p33196/kym9881/cs396-final-project
 ```
 
 Quick environment checks:

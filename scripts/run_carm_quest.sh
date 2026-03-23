@@ -35,6 +35,7 @@ EVAL_SPLIT="$5"
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
+source "${REPO_ROOT}/scripts/runtime_env.sh"
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 TRAIN_SCRIPT="${REPO_ROOT}/scripts/train_carm.py"
 EVAL_SCRIPT="${REPO_ROOT}/scripts/evaluate_carm.py"
@@ -55,10 +56,7 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
 fi
 
 export PATH="${REPO_ROOT}/.venv/bin:${PATH}"
-export HF_HOME="${REPO_ROOT}/.hf_home"
-export HF_HUB_CACHE="${REPO_ROOT}/.hf_cache"
-export HF_DATASETS_CACHE="${REPO_ROOT}/.hf_cache/datasets"
-export PYTHONUNBUFFERED=1
+setup_hf_runtime_env "${REPO_ROOT}"
 
 log "start carm control output_root=${OUTPUT_ROOT}"
 log "repo_root=${REPO_ROOT}"
@@ -71,6 +69,10 @@ log "python_bin=${PYTHON_BIN}"
   printf 'slurm_job_id=%s\n' "${SLURM_JOB_ID:-none}"
   printf 'slurm_job_name=%s\n' "${SLURM_JOB_NAME:-none}"
   printf 'cuda_visible_devices=%s\n' "${CUDA_VISIBLE_DEVICES:-unset}"
+  printf 'hf_runtime_root=%s\n' "${HF_RUNTIME_ROOT}"
+  printf 'hf_home=%s\n' "${HF_HOME}"
+  printf 'hf_hub_cache=%s\n' "${HF_HUB_CACHE}"
+  printf 'hf_datasets_cache=%s\n' "${HF_DATASETS_CACHE}"
   printf 'config_path=%s\n' "${CONFIG_PATH}"
   printf 'input_jsonl=%s\n' "${INPUT_JSONL}"
   printf 'manifest_path=%s\n' "${MANIFEST_PATH}"

@@ -37,6 +37,8 @@ from carm.experimental.model import (
     DistributionCARMHeads,
     ExperimentalCARMConfig,
     ExperimentalCARMHeads,
+    FlatHiddenCARMConfig,
+    FlatHiddenCARMHeads,
 )
 from carm.experimental.sampling import SmallRunConfig, build_small_run_splits
 from carm.experimental.training import ExperimentalLossConfig, ExperimentalTrainer, ExperimentalTrainerConfig
@@ -443,7 +445,17 @@ def main() -> None:
     structured_dir = output_dir / "structured_carm"
 
     model_type = str(model_cfg.get("type", "flat")).strip().lower()
-    if model_type == "distribution":
+    if model_type == "flat_hidden":
+        model: ExperimentalCARMHeads | CascadeCARMHeads | DistributionCARMHeads | FlatHiddenCARMHeads = FlatHiddenCARMHeads(
+            FlatHiddenCARMConfig(
+                hidden_size=int(model_cfg.get("hidden_size", 128)),
+                probe_feature_size=int(model_cfg.get("probe_feature_size", 3)),
+                cross_modal_feature_size=int(model_cfg.get("cross_modal_feature_size", 5)),
+                pool=str(model_cfg.get("pool", "mean")),
+                trunk_hidden_size=model_cfg.get("trunk_hidden_size"),
+            )
+        )
+    elif model_type == "distribution":
         model: ExperimentalCARMHeads | CascadeCARMHeads | DistributionCARMHeads = DistributionCARMHeads(
             DistributionCARMConfig(
                 vocab_size=int(model_cfg.get("vocab_size", 35)),
